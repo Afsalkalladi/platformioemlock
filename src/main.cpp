@@ -1,114 +1,105 @@
 #include <Arduino.h>
-#include "config/config.h"
-#include "core/health_monitor.h"
-#include "storage/nvs_store.h"
-#include "access/access_decision.h"
+
+// ===== CORE =====
+#include "core/event_types.h"
+#include "core/event_queue.h"
+
+// ===== ACCESS =====
 #include "access/rfid_manager.h"
-#include "access/exit_sensor.h"
-#include "access/exit_sensor.h"
+#include "access/access_controller.h"
 
+// ===== HARDWARE =====
+#include "relay/relay_controller.h"
+#include "buzzer/buzzer_manager.h"
 
-
-unsigned long lastHealthPrint = 0;
-// Queue used by Core 1 to receive RFID events
-QueueHandle_t rfidEventQueue = nullptr;
-QueueHandle_t exitEventQueue = xQueueCreate(5, sizeof(ExitEvent));
-void core1_access_task(void* param);
-
-
-void setup() {
-    Serial.begin(115200);
-    delay(500);
-
-    Serial.println("[BOOT] System starting");
-
-    xTaskCreatePinnedToCore(
-        core1_access_task,     // function
-        "core1_access",        // name
-        4096,                  // stack size
-        nullptr,               // param
-        2,                     // priority (higher than idle)
-        nullptr,               // task handle (not needed now)
-        1                      // CORE 1 (THIS IS CRITICAL)
-    );
-    Serial.println("[MAIN] Core 1 access task created");
-}
-
-void loop() {
-    // Empty by design
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-}
-
+// =====================================================
+// CORE 1 TASK
+// =====================================================
 void core1_access_task(void* param) {
     Serial.println("[CORE1] Access task starting");
 
-    // -------------------------------
-    // 1️⃣ CREATE THE RFID EVENT QUEUE
-    // -------------------------------
-    rfidEventQueue = xQueueCreate(
-        10,                 // max 10 pending RFID events
-        sizeof(RFIDEvent)   // size of each event
-    );
-    exitEventQueue = xQueueCreate(5, sizeof(ExitEvent));
+    // --- INIT MODULES (ONCE) ---
+    RFIDManager::init(21, 22, nullptr);   // keep legacy RFID init
+    AccessController::init();
 
-    if (rfidEventQueue == nullptr) {
-        Serial.println("[CORE1][FATAL] RFID queue creation failed");
-        vTaskDelete(nullptr); // kill task, system is broken
-    }
+    Serial.println("[CORE1] Access system initialized");
 
+    static bool exitSimLatch = false;
 
-
-    // -------------------------------
-    // 2️⃣ INITIALIZE RFID MANAGER
-    // -------------------------------
-    RFIDManager::init(
-        21,   // SDA / SS
-        22,   // RST
-        rfidEventQueue
-    );
-
-    Serial.println("[CORE1] RFID Manager initialized");
-
-    // -------------------------------
-    // 3️⃣ MAIN REAL-TIME LOOP
-    // -------------------------------
     while (true) {
 
-        // 3.1 Poll RFID hardware (non-blocking)
+        // 1️⃣ Poll RFID hardware
         RFIDManager::poll();
 
-        // 3.2 Check if any RFID event arrived
-        RFIDEvent evt;
-        if (xQueueReceive(rfidEventQueue, &evt, 0) == pdTRUE) {
-
-            // TEMPORARY TEST OUTPUT (WILL BE REMOVED LATER)
-            Serial.print("[RFID EVENT] ");
-
-            if (evt.type == RFIDEventType::CARD_DETECTED) {
-                Serial.print("CARD ");
-            } else {
-                Serial.print("INVALID ");
-            }
-        }
-         ExitEvent exitEvt;
-        if (xQueueReceive(exitEventQueue, &exitEvt, 0) == pdTRUE) {
-            Serial.println("[EXIT EVENT] EXIT_TRIGGERED");
+        // 2️⃣ Handle unified events
+        Event evt;
+        if (EventQueue::receive(evt)) {
+            AccessController::handleEvent(evt);
         }
 
-        // ---------------- DEBUG EXIT SIMULATION ----------------
+        // 3️⃣ Update access controller (timers / cooldown)
+        AccessController::update();
+
+        // 4️⃣ DEBUG: EXIT SIMULATION (PRESS 'E')
+    // ---------------- DEBUG EXIT SIMULATION ----------------
+        static bool exitSimLatch = false;
+        static uint32_t exitSimLatchTime = 0;
+        const uint32_t EXIT_SIM_LATCH_MS = 300;  // simulate hand leaving sensor
+
         if (Serial.available()) {
             char c = Serial.read();
-            if (c == 'E' || c == 'e') {
-                ExitEvent simEvt;
-                simEvt.type = ExitEventType::EXIT_TRIGGERED;
-                xQueueSend(exitEventQueue, &simEvt, 0);
-                Serial.println("[DEBUG] Simulated EXIT_TRIGGERED");
-            }
-        }
-        // 3.3 Small yield to RTOS (NOT delay)
+
+            if ((c == 'E' || c == 'e') && !exitSimLatch) {
+                Event evt{};
+                evt.type = EventType::EXIT_TRIGGERED;
+                EventQueue::send(evt);
+                Serial.println("[SIM] EXIT_TRIGGERED");
+
+                exitSimLatch = true;
+                exitSimLatchTime = millis();
+          }
+}
+
+// auto-reset latch after time
+if (exitSimLatch && (millis() - exitSimLatchTime > EXIT_SIM_LATCH_MS)) {
+    exitSimLatch = false;
+}
+
+
+        // Yield (NO delay)
         vTaskDelay(5 / portTICK_PERIOD_MS);
     }
 }
 
+// =====================================================
+// SETUP
+// =====================================================
+void setup() {
+    Serial.begin(115200);
+    delay(500);
 
+    Serial.println("\n[BOOT] System starting");
+
+    // --- INIT SHARED SYSTEMS ---
+    EventQueue::init();
+    RelayController::init();
+    BuzzerManager::init();
+
+    // --- START CORE 1 TASK ---
+    xTaskCreatePinnedToCore(
+        core1_access_task,
+        "core1_access",
+        8192,
+        nullptr,
+        2,
+        nullptr,
+        1   // CORE 1
+    );
+
+    Serial.println("[MAIN] Core 1 access task created");
+}
+
+void loop() {
+    // Not used (FreeRTOS system)
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+}
