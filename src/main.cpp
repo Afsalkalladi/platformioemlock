@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <FS.h>
 #include <LittleFS.h>
+#include <time.h>
 
 
 // ===== CORE =====
@@ -111,6 +112,47 @@ void setup() {
 
 void loop() {
     WiFiManager::update();
+    static uint32_t lastPrint = 0;
+
+    // ===== DEBUG: READ TODAY'S LOG FILE =====
+if (Serial.available()) {
+    char c = Serial.read();
+
+    if (c == 'L' || c == 'l') {
+        time_t now = time(nullptr);
+        struct tm t;
+        localtime_r(&now, &t);
+
+        char filename[32];
+        snprintf(filename, sizeof(filename),
+                 "/log_%04d%02d%02d.txt",
+                 t.tm_year + 1900,
+                 t.tm_mon + 1,
+                 t.tm_mday);
+
+        File f = LittleFS.open(filename, FILE_READ);
+        if (!f) {
+            Serial.print("[LOG] File not found: ");
+            Serial.println(filename);
+        } else {
+            Serial.println("----- LOG START -----");
+            while (f.available()) {
+                Serial.write(f.read());
+            }
+            Serial.println("\n----- LOG END -----");
+            f.close();
+        }
+    }
+}
+
+
+if (WiFiManager::isTimeValid() && millis() - lastPrint > 5000) {
+    time_t now = time(nullptr);
+    Serial.print("[TIME] ");
+    Serial.println(ctime(&now));
+    lastPrint = millis();
+}
+
     vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 

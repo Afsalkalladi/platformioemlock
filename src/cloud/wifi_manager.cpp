@@ -54,6 +54,8 @@ void WiFiManager::update() {
 
     case WiFiState::NTP_SYNCING:
         if (ntpTimeValid()) {
+            setenv("TZ", "IST-5:30", 1);
+            tzset();
             Serial.println("[NTP] Time synchronized");
             timeValid = true;
             state = WiFiState::READY;
