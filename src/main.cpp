@@ -30,7 +30,7 @@ void core1_access_task(void* param) {
     Serial.println("[CORE1] Access task starting");
 
     // --- INIT MODULES (ONCE) ---
-    RFIDManager::init(21, 22, nullptr);   // keep legacy RFID init
+    RFIDManager::init(21, 22);   // keep legacy RFID init
     AccessController::init();
 
     Serial.println("[CORE1] Access system initialized");

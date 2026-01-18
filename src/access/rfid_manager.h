@@ -22,7 +22,7 @@ struct RFIDEvent {
 
 class RFIDManager {
 public:
-    static void init(uint8_t ssPin, uint8_t rstPin, QueueHandle_t eventQueue);
+    static void init(uint8_t ssPin, uint8_t rstPin);
     static void poll();   // Non-blocking, called repeatedly on Core 1
 
 private:

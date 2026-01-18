@@ -10,17 +10,13 @@
 static MFRC522 rfid(21, 22);   // SDA, RST
 
 // ================= INTERNAL STATE =================
-static QueueHandle_t rfidQueue = nullptr;
 
-static uint32_t lastReadMillis = 0;
-static char lastUID[21] = {0};
 
 static const uint32_t RFID_COOLDOWN_MS = 1000;
 
 // ================= PUBLIC FUNCTIONS =================
 
-void RFIDManager::init(uint8_t ssPin, uint8_t rstPin, QueueHandle_t eventQueue) {
-    rfidQueue = eventQueue;
+void RFIDManager::init(uint8_t ssPin, uint8_t rstPin) {
 
     SPI.begin(18, 19, 23, ssPin);   // SCK, MISO, MOSI, SS
     rfid.PCD_Init();
@@ -86,29 +82,4 @@ void RFIDManager::poll() {
 
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
-}
-
-
-// ================= PRIVATE FUNCTIONS =================
-
-void RFIDManager::emitEvent(RFIDEventType type, const char* uid) {
-    if (!rfidQueue) return;
-
-    RFIDEvent event;
-    event.type = type;
-    strncpy(event.uid, uid, sizeof(event.uid) - 1);
-
-    xQueueSend(rfidQueue, &event, 0);
-}
-
-bool RFIDManager::isValidUID(const char* uid) {
-    size_t len = strlen(uid);
-
-    if (len < 8 || len > 20) return false;
-    if (len % 2 != 0) return false;
-
-    for (size_t i = 0; i < len; i++) {
-        if (!isxdigit(uid[i])) return false;
-    }
-    return true;
 }
