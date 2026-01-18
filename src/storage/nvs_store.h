@@ -32,6 +32,7 @@ public:
     // SYNC helpers (REQUIRED)
     static void clearWhitelist();
     static void clearBlacklist();
+    static void clearPending();
 
     // Factory reset
     static void factoryReset();
@@ -41,12 +42,17 @@ public:
     static uint8_t blacklistCount();
     static uint8_t pendingCount();
 
+    static void setLastCommandId(const char* id);
+    static String getLastCommandId();
+
+
     static void forEachPending(const std::function<void(const char* uid)>& cb);
 
 private:
     static Preferences wl;
     static Preferences bl;
     static Preferences pd;
+    static Preferences sys;
 
     static bool addExclusive(Preferences& target, const char* uid, bool bypassLimit);
 };

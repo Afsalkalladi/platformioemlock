@@ -9,15 +9,16 @@
 #include <ArduinoJson.h>
 
 static String deviceId;
-static String lastAckedCmd;
+static String lastAckedCmd; // runtime cache
 
 
 // ---------- JSON ESCAPE (REQUIRED) ----------
 static String jsonEscape(const String& s) {
     String out;
-    out.reserve(s.length() + 8);
+    out.reserve(s.length() + 16);
 
-    for (char c : s) {
+    for (size_t i = 0; i < s.length(); i++) {
+        char c = s[i];
         switch (c) {
             case '\"': out += "\\\""; break;
             case '\\': out += "\\\\"; break;
@@ -29,7 +30,6 @@ static String jsonEscape(const String& s) {
     }
     return out;
 }
-
 
 
 static bool ackCommand(const String& cmdId, const String& result) {
@@ -44,8 +44,9 @@ static bool ackCommand(const String& cmdId, const String& result) {
     http.addHeader("Content-Type", "application/json");
 
     String body =
-        "{\"status\":\"DONE\",\"result\":\"" +
-        jsonEscape(result) + "\"}";
+        "{\"status\":\"DONE\",\"result\":\"" + jsonEscape(result) + "\"}";
+
+
 
     int code = http.PATCH(body);
     http.end();
@@ -69,6 +70,9 @@ static bool ackCommand(const String& cmdId, const String& result) {
 void CommandProcessor::init() {
     deviceId = WiFi.macAddress();
     deviceId.replace(":", "");
+    lastAckedCmd = NVSStore::getLastCommandId();
+    Serial.println("[CMD] Last command restored: " + lastAckedCmd);
+
     Serial.println("[CMD] Supabase processor ready for " + deviceId);
 }
 
@@ -143,6 +147,46 @@ void CommandProcessor::update() {
 
         if (ackCommand(cmdId, "REMOTE_UNLOCK_OK")) {
             lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+        }
+        return;
+    }
+
+    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
+    if (strcmp(type, "GET_PENDING") == 0) {
+
+        StaticJsonDocument<512> out;
+        JsonArray arr = out.to<JsonArray>();
+
+        NVSStore::forEachPending([&](const char* uid) {
+            // Use String to force ArduinoJson to copy the data
+            arr.add(String(uid));
+        });
+
+        String result;
+        serializeJson(arr, result);
+
+        LogStore::log(LogEvent::UID_SYNC, "-", "get_pending");
+
+        if (ackCommand(cmdId, "PENDING:" + result)) {
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+        }
+        return;
+    }
+
+    // -------- GET_DEBUG: Get NVS stats --------
+    if (strcmp(type, "GET_DEBUG") == 0) {
+
+        String debug = "WL:" + String(NVSStore::whitelistCount()) +
+                       ",BL:" + String(NVSStore::blacklistCount()) +
+                       ",PD:" + String(NVSStore::pendingCount());
+
+        Serial.println("[CMD] GET_DEBUG: " + debug);
+
+        if (ackCommand(cmdId, debug)) {
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
         }
         return;
     }
@@ -168,6 +212,7 @@ void CommandProcessor::update() {
         }
 
         lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
         return;
     }
 
@@ -184,6 +229,7 @@ void CommandProcessor::update() {
         }
 
         lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
         return;
     }
 
@@ -195,17 +241,36 @@ void CommandProcessor::update() {
         ackCommand(cmdId, "REMOVE_UID_OK");
 
         lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
         return;
     }
     if (strcmp(type, "SYNC_UIDS") == 0) {
 
-        JsonArray wl = cmd["payload"]["whitelist"];
-        JsonArray bl = cmd["payload"]["blacklist"];
+        JsonObject payload = cmd["payload"];
+if (payload.isNull()) {
+    ackCommand(cmdId, "SYNC_UIDS_NO_PAYLOAD");
+    lastAckedCmd = cmdId;
+    NVSStore::setLastCommandId(cmdId);
+    return;
+}
+
+JsonArray wl = payload["whitelist"];
+JsonArray bl = payload["blacklist"];
+
+if (wl.isNull() || bl.isNull()) {
+    ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
+    lastAckedCmd = cmdId;
+    NVSStore::setLastCommandId(cmdId);
+    return;
+}
+
 
         if (!wl.isNull() && !bl.isNull()) {
 
             NVSStore::clearWhitelist();
             NVSStore::clearBlacklist();
+            NVSStore::clearPending();   // <-- ADD THIS LINE HERE
+
 
             for (JsonVariant v : wl) {
                 NVSStore::addToWhitelist(v.as<const char*>());
@@ -224,53 +289,14 @@ void CommandProcessor::update() {
         }
 
         lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
         return;
     }
-
-    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
-    if (strcmp(type, "GET_PENDING") == 0) {
-
-        Serial.println("[CMD] GET_PENDING received - reporting all pending UIDs");
-
-        uint8_t count = 0;
-
-        NVSStore::forEachPending([&count](const char* uid) {
-
-            HTTPClient post;
-            String url = String(SUPABASE_URL) + "/rest/v1/device_pending_reports";
-
-            post.begin(url);
-            post.addHeader("apikey", SUPABASE_KEY);
-            post.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-            post.addHeader("Content-Type", "application/json");
-            post.addHeader("Prefer", "return=minimal");
-
-            String body =
-                "{\"device_id\":\"" + deviceId +
-                "\",\"uid\":\"" + String(uid) + "\"}";
-
-            int code = post.POST(body);
-            post.end();
-
-            if (code == 201 || code == 200) {
-                Serial.printf("[PENDING] Reported: %s\n", uid);
-                count++;
-            } else {
-                Serial.printf("[PENDING] Failed to report %s (HTTP %d)\n", uid, code);
-            }
-        });
-
-        String result = "PENDING_SENT:" + String(count);
-        ackCommand(cmdId, result.c_str());
-        lastAckedCmd = cmdId;
-        return;
-    }
-
-    
 
     // ---- UNKNOWN COMMAND ----
     Serial.println("[CMD] Unknown command type: " + String(type));
     LogStore::log(LogEvent::COMMAND_ERROR, type, "unknown_cmd");
     ackCommand(cmdId, "UNKNOWN_COMMAND");
     lastAckedCmd = cmdId;
+    NVSStore::setLastCommandId(cmdId);
 }
