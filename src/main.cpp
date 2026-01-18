@@ -18,6 +18,8 @@
 // ===== STORAGE =====
 #include "storage/nvs_store.h"
 #include "storage/log_store.h"
+
+#include "cloud/wifi_manager.h"
 // =====================================================
 // CORE 1 TASK
 // =====================================================
@@ -88,6 +90,8 @@ void setup() {
     BuzzerManager::init();
     NVSStore::init();
     LogStore::init();
+    WiFiManager::init();
+
 
 
     // --- START CORE 1 TASK ---
@@ -106,6 +110,7 @@ void setup() {
 }
 
 void loop() {
-    // Not used (FreeRTOS system)
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    WiFiManager::update();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
 }
+
