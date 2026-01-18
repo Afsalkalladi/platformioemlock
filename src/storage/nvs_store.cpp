@@ -63,10 +63,9 @@ UIDState NVSStore::getState(const char* uid) {
 
 // ================= MUTATIONS =================
 
-bool NVSStore::addExclusive(Preferences& target, const char* uid) {
+bool NVSStore::addExclusive(Preferences& target, const char* uid,bool bypassLimit) {
 
-    // Enforce MAX_UIDS explicitly
-    if (getCount(target) >= MAX_UIDS) {
+    if (!bypassLimit && getCount(target) >= MAX_UIDS) {
         Serial.println("[NVS] Capacity reached");
         return false;
     }
@@ -95,11 +94,11 @@ bool NVSStore::addExclusive(Preferences& target, const char* uid) {
 }
 
 bool NVSStore::addToWhitelist(const char* uid) {
-    return addExclusive(wl, uid);
+    return addExclusive(wl, uid,false);
 }
 
 bool NVSStore::addToBlacklist(const char* uid) {
-    return addExclusive(bl, uid);
+    return addExclusive(bl, uid,false);
 }
 
 bool NVSStore::addToPending(const char* uid) {
@@ -132,6 +131,16 @@ void NVSStore::removeUID(const char* uid) {
     }
 }
 
+// ================= SYNC HELPERS =================
+void NVSStore::clearWhitelist() {
+    wl.clear();
+    setCount(wl, 0);
+}
+
+void NVSStore::clearBlacklist() {
+    bl.clear();
+    setCount(bl, 0);
+}
 // ================= RESET =================
 
 void NVSStore::factoryReset() {

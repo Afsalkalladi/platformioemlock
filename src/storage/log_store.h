@@ -13,6 +13,7 @@ enum class LogEvent : uint8_t {
     UID_WHITELISTED,
     UID_BLACKLISTED,
     UID_REMOVED,
+    UID_SYNC,
     COMMAND_ERROR
 };
 

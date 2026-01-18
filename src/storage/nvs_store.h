@@ -28,6 +28,10 @@ public:
 
     static void removeUID(const char* uid);
 
+    // SYNC helpers (REQUIRED)
+    static void clearWhitelist();
+    static void clearBlacklist();
+
     // Factory reset
     static void factoryReset();
 
@@ -36,10 +40,12 @@ public:
     static uint8_t blacklistCount();
     static uint8_t pendingCount();
 
+
+
 private:
     static Preferences wl;
     static Preferences bl;
     static Preferences pd;
 
-    static bool addExclusive(Preferences& target, const char* uid);
+    static bool addExclusive(Preferences& target, const char* uid,bool bypassLimit);
 };

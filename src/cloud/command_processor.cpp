@@ -197,6 +197,37 @@ void CommandProcessor::update() {
         lastAckedCmd = cmdId;
         return;
     }
+    else if (strcmp(type, "SYNC_UIDS") == 0) {
+
+    JsonArray wl = cmd["payload"]["whitelist"];
+    JsonArray bl = cmd["payload"]["blacklist"];
+
+    if (!wl.isNull() && !bl.isNull()) {
+
+        NVSStore::clearWhitelist();
+        NVSStore::clearBlacklist();
+
+        for (JsonVariant v : wl) {
+            NVSStore::addToWhitelist(v.as<const char*>());
+            Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
+        }
+
+        for (JsonVariant v : bl) {
+            NVSStore::addToBlacklist(v.as<const char*>());
+            Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
+        }
+
+        LogStore::log(LogEvent::UID_SYNC, "-", "cloud");
+
+        ackCommand(cmdId, "SYNC_UIDS_OK");
+        lastAckedCmd = cmdId;
+    }
+    else {
+        ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
+    }
+}
+
+    
 
     // ---- UNKNOWN COMMAND ----
     Serial.println("[CMD] Unknown command type: " + String(type));
