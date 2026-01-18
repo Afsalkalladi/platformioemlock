@@ -9,6 +9,26 @@
 #include <ArduinoJson.h>
 
 static String deviceId;
+static void ackCommand(const String& cmdId, const String& result) {
+    HTTPClient http;
+
+    String url = String(SUPABASE_URL) + "/rest/v1/device_commands?id=eq." + cmdId;
+
+    http.begin(url);
+    http.addHeader("apikey", SUPABASE_KEY);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+    http.addHeader("Content-Type", "application/json");
+
+    String body = String("{\"status\":\"DONE\",\"result\":\"") +
+                  result +
+                  "\",\"acked_at\":\"now()\"}";
+
+    http.PATCH(body);
+    http.end();
+
+    Serial.println("[CMD] Command ACKED: " + cmdId);
+}
+
 
 void CommandProcessor::init() {
     deviceId = WiFi.macAddress();
@@ -74,14 +94,17 @@ void CommandProcessor::update() {
         EventQueue::send(e);
 
         LogStore::log(LogEvent::REMOTE_UNLOCK, "-", "supabase");
+        ackCommand(cmdId, "REMOTE_UNLOCK_OK");
     }
 
     else if (strcmp(type, "WHITELIST_ADD") == 0 && uid) {
 
         if (NVSStore::addToWhitelist(uid)) {
             LogStore::log(LogEvent::UID_WHITELISTED, uid, "supabase");
+            ackCommand(cmdId, "WHITELIST_ADD_OK");
         } else {
             LogStore::log(LogEvent::COMMAND_ERROR, uid, "wl_failed");
+            ackCommand(cmdId, "WHITELIST_ADD_FAIL");
         }
     }
 
@@ -89,8 +112,10 @@ void CommandProcessor::update() {
 
         if (NVSStore::addToBlacklist(uid)) {
             LogStore::log(LogEvent::UID_BLACKLISTED, uid, "supabase");
+            ackCommand(cmdId, "BLACKLIST_ADD_OK");
         } else {
             LogStore::log(LogEvent::COMMAND_ERROR, uid, "bl_failed");
+            ackCommand(cmdId, "BLACKLIST_ADD_FAIL");
         }
     }
 
@@ -98,23 +123,12 @@ void CommandProcessor::update() {
 
         NVSStore::removeUID(uid);
         LogStore::log(LogEvent::UID_REMOVED, uid, "supabase");
+        ackCommand(cmdId, "REMOVE_UID_OK");
     }
 
     else {
         LogStore::log(LogEvent::COMMAND_ERROR, type, "unknown_cmd");
+        ackCommand(cmdId, "UNKNOWN_COMMAND");
     }
 
-    // ---------- ACK ----------
-    HTTPClient ack;
-    String ackUrl = String(SUPABASE_URL) +
-        "/rest/v1/device_commands?id=eq." + String(cmdId);
-
-    ack.begin(ackUrl);
-    ack.addHeader("apikey", SUPABASE_KEY);
-    ack.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-    ack.addHeader("Content-Type", "application/json");
-    ack.PATCH("{\"status\":\"DONE\"}");
-    ack.end();
-
-    Serial.println("[CMD] Command ACKED: " + String(cmdId));
 }

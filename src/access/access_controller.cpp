@@ -32,6 +32,26 @@ void AccessController::handleEvent(const Event& evt) {
         Serial.println("[ACCESS] Cooldown active, event ignored");
         return;
     }
+    // ===== RFID DEBUG VISIBILITY =====
+if (evt.type == EventType::RFID_GRANTED ||
+    evt.type == EventType::RFID_DENIED ||
+    evt.type == EventType::RFID_PENDING ||
+    evt.type == EventType::RFID_INVALID) {
+
+    Serial.print("[RFID] UID=");
+    Serial.print(evt.uid);
+    Serial.print(" RESULT=");
+
+    switch (evt.type) {
+        case EventType::RFID_GRANTED: Serial.println("GRANTED"); break;
+        case EventType::RFID_DENIED:  Serial.println("DENIED");  break;
+        case EventType::RFID_PENDING: Serial.println("PENDING"); break;
+        case EventType::RFID_INVALID: Serial.println("INVALID"); break;
+        default: break;
+    }
+}
+
+
 
     switch (evt.type) {
 
