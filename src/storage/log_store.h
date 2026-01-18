@@ -10,6 +10,9 @@ enum class LogEvent : uint8_t {
     REMOTE_UNLOCK,
     SYSTEM_BOOT,
     WIFI_LOST,
+    UID_WHITELISTED,
+    UID_BLACKLISTED,
+    UID_REMOVED,
     COMMAND_ERROR
 };
 

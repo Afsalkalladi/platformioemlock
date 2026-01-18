@@ -17,6 +17,9 @@ static const char* logEventToStr(LogEvent e) {
         case LogEvent::SYSTEM_BOOT:   return "SYSTEM_BOOT";
         case LogEvent::WIFI_LOST:     return "WIFI_LOST";
         case LogEvent::COMMAND_ERROR: return "COMMAND_ERROR";
+        case LogEvent::UID_WHITELISTED:  return "UID_WHITELISTED";
+        case LogEvent::UID_BLACKLISTED:  return "UID_BLACKLISTED";
+        case LogEvent::UID_REMOVED:      return "UID_REMOVED";
         default:                      return "UNKNOWN";
     }
 }

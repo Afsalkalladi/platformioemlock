@@ -21,6 +21,8 @@
 #include "storage/log_store.h"
 
 #include "cloud/wifi_manager.h"
+#include "cloud/command_processor.h"
+#include <WiFi.h>
 // =====================================================
 // CORE 1 TASK
 // =====================================================
@@ -84,18 +86,36 @@ void setup() {
     delay(500);
 
     Serial.println("\n[BOOT] System starting");
-
+    RelayController::init();
+    NVSStore::init();
+    Serial.print("[HEAP] Free heap before Firebase: ");
+    Serial.println(ESP.getFreeHeap());
+    WiFiManager::init();
     // --- INIT SHARED SYSTEMS ---
     EventQueue::init();
     RelayController::init();
     BuzzerManager::init();
     NVSStore::init();
     LogStore::init();
-    WiFiManager::init();
+    
     LogSync::init();
 
+    Serial.print("ESP32 MAC: ");
+    Serial.println(WiFi.macAddress());
 
 
+    Serial.print("[NET] IP: ");
+    Serial.println(WiFi.localIP());
+
+    Serial.print("[NET] DNS: ");
+    Serial.println(WiFi.dnsIP());
+    
+    
+
+  
+    delay(500);
+
+    
 
     // --- START CORE 1 TASK ---
     xTaskCreatePinnedToCore(
@@ -114,7 +134,15 @@ void setup() {
 
 void loop() {
     WiFiManager::update();
+    static bool cloudInitDone = false;
+
+    if (!cloudInitDone && WiFiManager::getState() == WiFiState::READY) {
+        CommandProcessor::init();
+        cloudInitDone = true;
+    }
     LogSync::update();
+    CommandProcessor::update();
+
 
     static uint32_t lastPrint = 0;
 
@@ -128,6 +156,9 @@ if (Serial.available()) {
     }
 }
 
+if (WiFiManager::getState() == WiFiState::READY) {
+    // Safe to use Firebase
+}
 
 
 

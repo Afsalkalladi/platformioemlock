@@ -1,0 +1,4 @@
+#pragma once
+
+#define SUPABASE_URL "https://tcqmymnlkhebmeqvgzoc.supabase.co"
+#define SUPABASE_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjcW15bW5sa2hlYm1lcXZnem9jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3MjgxODMsImV4cCI6MjA4NDMwNDE4M30.3YBttoYAoDJ8t_RnGjukzKK6SYDKgzsR5J_zfe0Oxg8"
