@@ -9,25 +9,61 @@
 #include <ArduinoJson.h>
 
 static String deviceId;
-static void ackCommand(const String& cmdId, const String& result) {
+static String lastAckedCmd;
+
+
+// ---------- JSON ESCAPE (REQUIRED) ----------
+static String jsonEscape(const String& s) {
+    String out;
+    out.reserve(s.length() + 8);
+
+    for (char c : s) {
+        switch (c) {
+            case '\"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:   out += c;
+        }
+    }
+    return out;
+}
+
+
+
+static bool ackCommand(const String& cmdId, const String& result) {
     HTTPClient http;
 
-    String url = String(SUPABASE_URL) + "/rest/v1/device_commands?id=eq." + cmdId;
+    String url = String(SUPABASE_URL) +
+        "/rest/v1/device_commands?id=eq." + cmdId;
 
     http.begin(url);
     http.addHeader("apikey", SUPABASE_KEY);
     http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
     http.addHeader("Content-Type", "application/json");
 
-    String body = String("{\"status\":\"DONE\",\"result\":\"") +
-                  result +
-                  "\",\"acked_at\":\"now()\"}";
+    String body =
+        "{\"status\":\"DONE\",\"result\":\"" +
+        jsonEscape(result) + "\"}";
 
-    http.PATCH(body);
+    int code = http.PATCH(body);
     http.end();
 
-    Serial.println("[CMD] Command ACKED: " + cmdId);
+    if (code == 200 || code == 204) {
+        Serial.printf("[CMD] ACK OK %s\n", cmdId.c_str());
+        return true;
+    }
+
+    Serial.printf(
+        "[CMD][ACK FAIL] %s HTTP %d BODY=%s\n",
+        cmdId.c_str(), code, body.c_str()
+    );
+    return false;
 }
+
+
+
 
 
 void CommandProcessor::init() {
@@ -35,7 +71,6 @@ void CommandProcessor::init() {
     deviceId.replace(":", "");
     Serial.println("[CMD] Supabase processor ready for " + deviceId);
 }
-
 
 
 void CommandProcessor::update() {
@@ -48,8 +83,11 @@ void CommandProcessor::update() {
     HTTPClient http;
 
     String url = String(SUPABASE_URL) +
-        "/rest/v1/device_commands?device_id=eq." + deviceId +
-        "&status=eq.PENDING&limit=1";
+        "/rest/v1/device_commands"
+        "?device_id=eq." + deviceId +
+        "&status=eq.PENDING"
+        "&order=created_at.asc"
+        "&limit=1";
 
     http.begin(url);
     http.addHeader("apikey", SUPABASE_KEY);
@@ -64,16 +102,10 @@ void CommandProcessor::update() {
 
     String payload = http.getString();
     http.end();
-
     if (payload.length() < 5) return;
 
-    // ---------- JSON PARSE ----------
     StaticJsonDocument<1024> doc;
-    DeserializationError err = deserializeJson(doc, payload);
-    if (err) {
-        LogStore::log(LogEvent::COMMAND_ERROR, "-", "json_parse_fail");
-        return;
-    }
+    if (deserializeJson(doc, payload)) return;
 
     JsonArray arr = doc.as<JsonArray>();
     if (arr.size() == 0) return;
@@ -82,11 +114,25 @@ void CommandProcessor::update() {
 
     const char* cmdId = cmd["id"];
     const char* type  = cmd["type"];
-    const char* uid   = cmd["uid"];
+    const char* uid   = cmd["uid"];   // may be null
 
     if (!cmdId || !type) return;
 
-    // ---------- EXECUTION ----------
+    // -------- DUPLICATE GUARD --------
+    if (lastAckedCmd == cmdId) {
+        Serial.println("[CMD] Duplicate ignored: " + String(cmdId));
+        return;
+    }
+
+    Serial.printf(
+        "[CMD] Received: id=%s type=%s uid=%s\n",
+        cmdId,
+        type,
+        uid ? uid : "-"
+    );
+
+    // -------- EXECUTION --------
+
     if (strcmp(type, "REMOTE_UNLOCK") == 0) {
 
         Event e{};
@@ -94,41 +140,67 @@ void CommandProcessor::update() {
         EventQueue::send(e);
 
         LogStore::log(LogEvent::REMOTE_UNLOCK, "-", "supabase");
-        ackCommand(cmdId, "REMOTE_UNLOCK_OK");
+
+        if (ackCommand(cmdId, "REMOTE_UNLOCK_OK")) {
+            lastAckedCmd = cmdId;
+        }
+        return;
     }
 
-    else if (strcmp(type, "WHITELIST_ADD") == 0 && uid) {
+    // ---- UID REQUIRED BELOW ----
+    if (!uid || strlen(uid) == 0) {
+        LogStore::log(LogEvent::COMMAND_ERROR, "-", "missing_uid");
+        ackCommand(cmdId, "MISSING_UID");
+        lastAckedCmd = cmdId;
+        return;
+    }
+
+    if (strcmp(type, "WHITELIST_ADD") == 0) {
 
         if (NVSStore::addToWhitelist(uid)) {
+            Serial.println("[CMD] Whitelisted UID: " + String(uid));
             LogStore::log(LogEvent::UID_WHITELISTED, uid, "supabase");
             ackCommand(cmdId, "WHITELIST_ADD_OK");
         } else {
+            Serial.println("[CMD] Whitelist FAILED for UID: " + String(uid));
             LogStore::log(LogEvent::COMMAND_ERROR, uid, "wl_failed");
             ackCommand(cmdId, "WHITELIST_ADD_FAIL");
         }
+
+        lastAckedCmd = cmdId;
+        return;
     }
 
-    else if (strcmp(type, "BLACKLIST_ADD") == 0 && uid) {
+    if (strcmp(type, "BLACKLIST_ADD") == 0) {
 
         if (NVSStore::addToBlacklist(uid)) {
+            Serial.println("[CMD] Blacklisted UID: " + String(uid));
             LogStore::log(LogEvent::UID_BLACKLISTED, uid, "supabase");
             ackCommand(cmdId, "BLACKLIST_ADD_OK");
         } else {
+            Serial.println("[CMD] Blacklist FAILED for UID: " + String(uid));
             LogStore::log(LogEvent::COMMAND_ERROR, uid, "bl_failed");
             ackCommand(cmdId, "BLACKLIST_ADD_FAIL");
         }
+
+        lastAckedCmd = cmdId;
+        return;
     }
 
-    else if (strcmp(type, "REMOVE_UID") == 0 && uid) {
+    if (strcmp(type, "REMOVE_UID") == 0) {
 
         NVSStore::removeUID(uid);
+        Serial.println("[CMD] Removed UID: " + String(uid));
         LogStore::log(LogEvent::UID_REMOVED, uid, "supabase");
         ackCommand(cmdId, "REMOVE_UID_OK");
+
+        lastAckedCmd = cmdId;
+        return;
     }
 
-    else {
-        LogStore::log(LogEvent::COMMAND_ERROR, type, "unknown_cmd");
-        ackCommand(cmdId, "UNKNOWN_COMMAND");
-    }
-
+    // ---- UNKNOWN COMMAND ----
+    Serial.println("[CMD] Unknown command type: " + String(type));
+    LogStore::log(LogEvent::COMMAND_ERROR, type, "unknown_cmd");
+    ackCommand(cmdId, "UNKNOWN_COMMAND");
+    lastAckedCmd = cmdId;
 }
