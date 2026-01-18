@@ -1,4 +1,6 @@
 #include "nvs_store.h"
+#include <nvs.h>
+#include <functional>
 
 // Namespaces
 static const char* NS_WL = "wl";
@@ -63,7 +65,7 @@ UIDState NVSStore::getState(const char* uid) {
 
 // ================= MUTATIONS =================
 
-bool NVSStore::addExclusive(Preferences& target, const char* uid,bool bypassLimit) {
+bool NVSStore::addExclusive(Preferences& target, const char* uid, bool bypassLimit) {
 
     if (!bypassLimit && getCount(target) >= MAX_UIDS) {
         Serial.println("[NVS] Capacity reached");
@@ -94,11 +96,11 @@ bool NVSStore::addExclusive(Preferences& target, const char* uid,bool bypassLimi
 }
 
 bool NVSStore::addToWhitelist(const char* uid) {
-    return addExclusive(wl, uid,false);
+    return addExclusive(wl, uid, false);
 }
 
 bool NVSStore::addToBlacklist(const char* uid) {
-    return addExclusive(bl, uid,false);
+    return addExclusive(bl, uid, false);
 }
 
 bool NVSStore::addToPending(const char* uid) {
@@ -151,6 +153,18 @@ void NVSStore::factoryReset() {
     setCount(bl, 0);
     setCount(pd, 0);
     Serial.println("[NVS] Factory reset completed");
+}
+
+void NVSStore::forEachPending(const std::function<void(const char* uid)>& cb) {
+    nvs_iterator_t it = nvs_entry_find(NVS_DEFAULT_PART_NAME, NS_PD, NVS_TYPE_ANY);
+    while (it != NULL) {
+        nvs_entry_info_t info;
+        nvs_entry_info(it, &info);
+        if (strcmp(info.key, "__count") != 0) {
+            cb(info.key);
+        }
+        it = nvs_entry_next(it);
+    }
 }
 
 // ================= COUNTS =================

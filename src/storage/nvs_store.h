@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <functional>
 
 enum class UIDState : uint8_t {
     NONE = 0,
@@ -40,12 +41,12 @@ public:
     static uint8_t blacklistCount();
     static uint8_t pendingCount();
 
-
+    static void forEachPending(const std::function<void(const char* uid)>& cb);
 
 private:
     static Preferences wl;
     static Preferences bl;
     static Preferences pd;
 
-    static bool addExclusive(Preferences& target, const char* uid,bool bypassLimit);
+    static bool addExclusive(Preferences& target, const char* uid, bool bypassLimit);
 };

@@ -197,35 +197,74 @@ void CommandProcessor::update() {
         lastAckedCmd = cmdId;
         return;
     }
-    else if (strcmp(type, "SYNC_UIDS") == 0) {
+    if (strcmp(type, "SYNC_UIDS") == 0) {
 
-    JsonArray wl = cmd["payload"]["whitelist"];
-    JsonArray bl = cmd["payload"]["blacklist"];
+        JsonArray wl = cmd["payload"]["whitelist"];
+        JsonArray bl = cmd["payload"]["blacklist"];
 
-    if (!wl.isNull() && !bl.isNull()) {
+        if (!wl.isNull() && !bl.isNull()) {
 
-        NVSStore::clearWhitelist();
-        NVSStore::clearBlacklist();
+            NVSStore::clearWhitelist();
+            NVSStore::clearBlacklist();
 
-        for (JsonVariant v : wl) {
-            NVSStore::addToWhitelist(v.as<const char*>());
-            Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
+            for (JsonVariant v : wl) {
+                NVSStore::addToWhitelist(v.as<const char*>());
+                Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
+            }
+
+            for (JsonVariant v : bl) {
+                NVSStore::addToBlacklist(v.as<const char*>());
+                Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
+            }
+
+            LogStore::log(LogEvent::UID_SYNC, "-", "cloud");
+            ackCommand(cmdId, "SYNC_UIDS_OK");
+        } else {
+            ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
         }
 
-        for (JsonVariant v : bl) {
-            NVSStore::addToBlacklist(v.as<const char*>());
-            Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
-        }
-
-        LogStore::log(LogEvent::UID_SYNC, "-", "cloud");
-
-        ackCommand(cmdId, "SYNC_UIDS_OK");
         lastAckedCmd = cmdId;
+        return;
     }
-    else {
-        ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
+
+    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
+    if (strcmp(type, "GET_PENDING") == 0) {
+
+        Serial.println("[CMD] GET_PENDING received - reporting all pending UIDs");
+
+        uint8_t count = 0;
+
+        NVSStore::forEachPending([&count](const char* uid) {
+
+            HTTPClient post;
+            String url = String(SUPABASE_URL) + "/rest/v1/device_pending_reports";
+
+            post.begin(url);
+            post.addHeader("apikey", SUPABASE_KEY);
+            post.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+            post.addHeader("Content-Type", "application/json");
+            post.addHeader("Prefer", "return=minimal");
+
+            String body =
+                "{\"device_id\":\"" + deviceId +
+                "\",\"uid\":\"" + String(uid) + "\"}";
+
+            int code = post.POST(body);
+            post.end();
+
+            if (code == 201 || code == 200) {
+                Serial.printf("[PENDING] Reported: %s\n", uid);
+                count++;
+            } else {
+                Serial.printf("[PENDING] Failed to report %s (HTTP %d)\n", uid, code);
+            }
+        });
+
+        String result = "PENDING_SENT:" + String(count);
+        ackCommand(cmdId, result.c_str());
+        lastAckedCmd = cmdId;
+        return;
     }
-}
 
     
 
