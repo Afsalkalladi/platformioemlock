@@ -32,6 +32,16 @@ void RFIDManager::poll() {
 
     if (!rfid.PICC_IsNewCardPresent()) return;
     if (!rfid.PICC_ReadCardSerial()) return;
+    static uint32_t lastReadMs = 0;
+
+if (millis() - lastReadMs < RFID_COOLDOWN_MS) {
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
+    return;
+}
+lastReadMs = millis();
+
+    
 
     uint8_t len = rfid.uid.size;
 
@@ -51,7 +61,7 @@ void RFIDManager::poll() {
     for (uint8_t i = 0; i < len; i++) {
         sprintf(uidStr + (i * 2), "%02X", rfid.uid.uidByte[i]);
     }
-
+    Serial.printf("[RFID] UID=%s\n", uidStr);
     // ---- ACCESS DECISION ----
     AccessResult result = AccessDecision::evaluate(String(uidStr));
 
@@ -67,8 +77,13 @@ void RFIDManager::poll() {
             evt.type = EventType::RFID_DENIED;
             break;
 
-        case AccessResult::PENDING_NEW:
+         case AccessResult::PENDING_NEW:
+            Serial.printf("[RFID] UID %s → PENDING (NEW)\n", uidStr);
+            evt.type = EventType::RFID_PENDING;
+            break;
+
         case AccessResult::PENDING_REPEAT:
+             Serial.printf("[RFID] UID %s → PENDING (REPEAT)\n", uidStr);
             evt.type = EventType::RFID_PENDING;
             break;
 
