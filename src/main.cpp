@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#include <FS.h>
+#include <LittleFS.h>
+
 
 // ===== CORE =====
 #include "core/event_types.h"
@@ -14,6 +17,7 @@
 
 // ===== STORAGE =====
 #include "storage/nvs_store.h"
+#include "storage/log_store.h"
 // =====================================================
 // CORE 1 TASK
 // =====================================================
@@ -64,6 +68,9 @@ void core1_access_task(void* param) {
         }
 
         vTaskDelay(5 / portTICK_PERIOD_MS);
+
+
+
     }
 }
 // =====================================================
@@ -80,6 +87,8 @@ void setup() {
     RelayController::init();
     BuzzerManager::init();
     NVSStore::init();
+    LogStore::init();
+
 
     // --- START CORE 1 TASK ---
     xTaskCreatePinnedToCore(

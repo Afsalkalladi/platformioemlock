@@ -2,6 +2,7 @@
 #include "relay/relay_controller.h"
 #include "buzzer/buzzer_manager.h"
 #include <Arduino.h>
+#include "storage/log_store.h"
 
 // ================= TIMING =================
 
@@ -35,29 +36,35 @@ void AccessController::handleEvent(const Event& evt) {
     switch (evt.type) {
 
         case EventType::EXIT_TRIGGERED:
+            LogStore::log(LogEvent::EXIT_UNLOCK, "-", "ok");
             unlockDoor();
             BuzzerManager::playExitTone();
             break;
 
         case EventType::REMOTE_UNLOCK:
+            LogStore::log(LogEvent::REMOTE_UNLOCK, "-", "ok");
             unlockDoor();
             BuzzerManager::playRemoteTone();
             break;
 
         case EventType::RFID_GRANTED:
+            LogStore::log(LogEvent::RFID_GRANTED, evt.uid, "ok");
             unlockDoor();
             BuzzerManager::playGrantTone();
             break;
 
         case EventType::RFID_DENIED:
+            LogStore::log(LogEvent::RFID_DENIED, evt.uid, "blacklist");
             BuzzerManager::playDenyTone();
             break;
 
         case EventType::RFID_PENDING:
+            LogStore::log(LogEvent::RFID_PENDING, evt.uid, "pending");
             BuzzerManager::playPendingTone();
             break;
             
         case EventType::RFID_INVALID:
+            LogStore::log(LogEvent::RFID_INVALID, "-", "invalid UID");
             BuzzerManager::playInvalid();
             break;
 
