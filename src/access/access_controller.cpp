@@ -56,6 +56,10 @@ void AccessController::handleEvent(const Event& evt) {
         case EventType::RFID_PENDING:
             BuzzerManager::playPendingTone();
             break;
+            
+        case EventType::RFID_INVALID:
+            BuzzerManager::playInvalid();
+            break;
 
         default:
             break;

@@ -3,9 +3,11 @@
 
 enum class AccessResult {
   GRANT,
-  DENY,
-  PENDING,
-  INVALID
+  DENY_BLACKLIST,
+  PENDING_NEW,
+PENDING_REPEAT,
+INVALID
+
 };
 
 namespace AccessDecision {

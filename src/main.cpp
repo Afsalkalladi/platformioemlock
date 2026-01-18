@@ -12,6 +12,8 @@
 #include "relay/relay_controller.h"
 #include "buzzer/buzzer_manager.h"
 
+// ===== STORAGE =====
+#include "storage/nvs_store.h"
 // =====================================================
 // CORE 1 TASK
 // =====================================================
@@ -25,6 +27,8 @@ void core1_access_task(void* param) {
     Serial.println("[CORE1] Access system initialized");
 
     static bool exitSimLatch = false;
+    static uint32_t exitSimLatchTime = 0;
+    const uint32_t EXIT_SIM_LATCH_MS = 300;
 
     while (true) {
 
@@ -42,35 +46,26 @@ void core1_access_task(void* param) {
 
         // 4️⃣ DEBUG: EXIT SIMULATION (PRESS 'E')
     // ---------------- DEBUG EXIT SIMULATION ----------------
-        static bool exitSimLatch = false;
-        static uint32_t exitSimLatchTime = 0;
-        const uint32_t EXIT_SIM_LATCH_MS = 300;  // simulate hand leaving sensor
-
-        if (Serial.available()) {
+ if (Serial.available()) {
             char c = Serial.read();
-
             if ((c == 'E' || c == 'e') && !exitSimLatch) {
-                Event evt{};
-                evt.type = EventType::EXIT_TRIGGERED;
-                EventQueue::send(evt);
+                Event e{};
+                e.type = EventType::EXIT_TRIGGERED;
+                EventQueue::send(e);
                 Serial.println("[SIM] EXIT_TRIGGERED");
 
                 exitSimLatch = true;
                 exitSimLatchTime = millis();
-          }
-}
+            }
+        }
 
-// auto-reset latch after time
-if (exitSimLatch && (millis() - exitSimLatchTime > EXIT_SIM_LATCH_MS)) {
-    exitSimLatch = false;
-}
+        if (exitSimLatch && millis() - exitSimLatchTime > EXIT_SIM_LATCH_MS) {
+            exitSimLatch = false;
+        }
 
-
-        // Yield (NO delay)
         vTaskDelay(5 / portTICK_PERIOD_MS);
     }
 }
-
 // =====================================================
 // SETUP
 // =====================================================
@@ -84,6 +79,7 @@ void setup() {
     EventQueue::init();
     RelayController::init();
     BuzzerManager::init();
+    NVSStore::init();
 
     // --- START CORE 1 TASK ---
     xTaskCreatePinnedToCore(
@@ -97,6 +93,7 @@ void setup() {
     );
 
     Serial.println("[MAIN] Core 1 access task created");
+
 }
 
 void loop() {

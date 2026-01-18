@@ -1,100 +1,152 @@
 #include "nvs_store.h"
-#include <Preferences.h>
 
-static Preferences prefs;
+// Namespaces
+static const char* NS_WL = "wl";
+static const char* NS_BL = "bl";
+static const char* NS_PD = "pd";
 
-// Namespace names
-static const char *NS_WHITELIST = "whitelist";
-static const char *NS_BLACKLIST = "blacklist";
-static const char *NS_PENDING   = "pending_seen";
+static const uint8_t MAX_UIDS = 10;
 
-namespace NVSStore {
+Preferences NVSStore::wl;
+Preferences NVSStore::bl;
+Preferences NVSStore::pd;
 
-  void begin() {
-    // Nothing to initialize globally
-    Serial.println("[NVS] Storage module ready");
-  }
 
-  // ================= WHITELIST =================
-
-  bool isWhitelisted(const String &uid) {
-    prefs.begin(NS_WHITELIST, true);
-    bool exists = prefs.isKey(uid.c_str());
-    prefs.end();
-    return exists;
-  }
-
-  bool addToWhitelist(const String &uid, const String &name) {
-    prefs.begin(NS_WHITELIST, false);
-    bool ok = prefs.putString(uid.c_str(), name) > 0;
-    prefs.end();
-    return ok;
-  }
-
-  bool removeFromWhitelist(const String &uid) {
-    prefs.begin(NS_WHITELIST, false);
-    bool ok = prefs.remove(uid.c_str());
-    prefs.end();
-    return ok;
-  }
-
-  // ================= BLACKLIST =================
-
-  bool isBlacklisted(const String &uid) {
-    prefs.begin(NS_BLACKLIST, true);
-    bool exists = prefs.isKey(uid.c_str());
-    prefs.end();
-    return exists;
-  }
-
-  bool addToBlacklist(const String &uid, const String &reason) {
-    prefs.begin(NS_BLACKLIST, false);
-    bool ok = prefs.putString(uid.c_str(), reason) > 0;
-    prefs.end();
-    return ok;
-  }
-
-  bool removeFromBlacklist(const String &uid) {
-    prefs.begin(NS_BLACKLIST, false);
-    bool ok = prefs.remove(uid.c_str());
-    prefs.end();
-    return ok;
-  }
-
-  // ================= PENDING =================
-
-  bool isPendingSeen(const String &uid) {
-    prefs.begin(NS_PENDING, true);
-    bool exists = prefs.isKey(uid.c_str());
-    prefs.end();
-    return exists;
-  }
-
-  bool markPendingSeen(const String &uid) {
-    prefs.begin(NS_PENDING, false);
-    bool ok = prefs.putBool(uid.c_str(), true);
-    prefs.end();
-    return ok;
-  }
-
-  // ================= DEBUG DUMPS =================
-
-  void dumpWhitelist() {
-    prefs.begin(NS_WHITELIST, true);
-    Serial.println("[NVS] Whitelist dump:");
-    prefs.end(); // ESP32 does not allow key iteration safely; see note below
-  }
-
-  void dumpBlacklist() {
-    prefs.begin(NS_BLACKLIST, true);
-    Serial.println("[NVS] Blacklist dump:");
-    prefs.end();
-  }
-
-  void dumpPending() {
-    prefs.begin(NS_PENDING, true);
-    Serial.println("[NVS] Pending dump:");
-    prefs.end();
-  }
-
+// ================= COUNT HELPERS =================
+static uint8_t getCount(Preferences& p) {
+    return p.getUChar("__count", 0);
 }
+
+static void setCount(Preferences& p, uint8_t v) {
+    p.putUChar("__count", v);
+}
+
+static void incCount(Preferences& p) {
+    setCount(p, getCount(p) + 1);
+}
+
+static void decCount(Preferences& p) {
+    uint8_t c = getCount(p);
+    if (c > 0) setCount(p, c - 1);
+}
+
+// ================= INIT =================
+
+void NVSStore::init() {
+    wl.begin(NS_WL, false);
+    bl.begin(NS_BL, false);
+    pd.begin(NS_PD, false);
+
+    Serial.println("[NVS] Store initialized");
+}
+
+// ================= QUERIES =================
+
+bool NVSStore::isWhitelisted(const char* uid) {
+    return wl.isKey(uid);
+}
+
+bool NVSStore::isBlacklisted(const char* uid) {
+    return bl.isKey(uid);
+}
+
+bool NVSStore::isPending(const char* uid) {
+    return pd.isKey(uid);
+}
+
+UIDState NVSStore::getState(const char* uid) {
+    if (isWhitelisted(uid)) return UIDState::WHITELIST;
+    if (isBlacklisted(uid)) return UIDState::BLACKLIST;
+    if (isPending(uid))     return UIDState::PENDING;
+    return UIDState::NONE;
+}
+
+// ================= MUTATIONS =================
+
+bool NVSStore::addExclusive(Preferences& target, const char* uid) {
+
+    // Enforce MAX_UIDS explicitly
+    if (getCount(target) >= MAX_UIDS) {
+        Serial.println("[NVS] Capacity reached");
+        return false;
+    }
+
+    // Remove from other namespaces silently
+    if (&target != &wl && wl.isKey(uid)) {
+        wl.remove(uid);
+        decCount(wl);
+    }
+    if (&target != &bl && bl.isKey(uid)) {
+        bl.remove(uid);
+        decCount(bl);
+    }
+    if (&target != &pd && pd.isKey(uid)) {
+        pd.remove(uid);
+        decCount(pd);
+    }
+
+    // Add to target if not present
+    if (!target.isKey(uid)) {
+        target.putUChar(uid, 1);
+        incCount(target);
+    }
+
+    return true;
+}
+
+bool NVSStore::addToWhitelist(const char* uid) {
+    return addExclusive(wl, uid);
+}
+
+bool NVSStore::addToBlacklist(const char* uid) {
+    return addExclusive(bl, uid);
+}
+
+bool NVSStore::addToPending(const char* uid) {
+
+    if (getState(uid) != UIDState::NONE) return false;
+
+    if (getCount(pd) >= MAX_UIDS) {
+        Serial.println("[NVS] Pending full");
+        return false;
+    }
+
+    pd.putUChar(uid, 1);
+    incCount(pd);
+    return true;
+}
+
+void NVSStore::removeUID(const char* uid) {
+
+    if (wl.isKey(uid)) {
+        wl.remove(uid);
+        decCount(wl);
+    }
+    if (bl.isKey(uid)) {
+        bl.remove(uid);
+        decCount(bl);
+    }
+    if (pd.isKey(uid)) {
+        pd.remove(uid);
+        decCount(pd);
+    }
+}
+
+// ================= RESET =================
+
+void NVSStore::factoryReset() {
+    wl.clear();
+    bl.clear();
+    pd.clear();
+    setCount(wl, 0);
+    setCount(bl, 0);
+    setCount(pd, 0);
+    Serial.println("[NVS] Factory reset completed");
+}
+
+// ================= COUNTS =================
+
+uint8_t NVSStore::whitelistCount() { return getCount(wl); }
+uint8_t NVSStore::blacklistCount() { return getCount(bl); }
+uint8_t NVSStore::pendingCount()   { return getCount(pd); }
+

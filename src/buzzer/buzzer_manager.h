@@ -9,4 +9,5 @@ public:
     static void playPendingTone();
     static void playExitTone();
     static void playRemoteTone();
+    static void playInvalid();
 };

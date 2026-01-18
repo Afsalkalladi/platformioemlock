@@ -9,6 +9,7 @@ enum class EventType : uint8_t {
     RFID_GRANTED,
     RFID_DENIED,
     RFID_PENDING,
+    RFID_INVALID,
 
     EXIT_TRIGGERED,
     REMOTE_UNLOCK,

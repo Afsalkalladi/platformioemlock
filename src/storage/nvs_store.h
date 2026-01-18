@@ -1,27 +1,45 @@
 #pragma once
+
 #include <Arduino.h>
+#include <Preferences.h>
 
-namespace NVSStore {
+enum class UIDState : uint8_t {
+    NONE = 0,
+    WHITELIST,
+    BLACKLIST,
+    PENDING
+};
 
-  // Lifecycle
-  void begin();
+class NVSStore {
+public:
+    static void init();
 
-  // ---------- WHITELIST ----------
-  bool isWhitelisted(const String &uid);
-  bool addToWhitelist(const String &uid, const String &name);
-  bool removeFromWhitelist(const String &uid);
+    // Queries
+    static bool isWhitelisted(const char* uid);
+    static bool isBlacklisted(const char* uid);
+    static bool isPending(const char* uid);
 
-  // ---------- BLACKLIST ----------
-  bool isBlacklisted(const String &uid);
-  bool addToBlacklist(const String &uid, const String &reason);
-  bool removeFromBlacklist(const String &uid);
+    static UIDState getState(const char* uid);
 
-  // ---------- PENDING ----------
-  bool isPendingSeen(const String &uid);
-  bool markPendingSeen(const String &uid);
+    // Mutations (mutually exclusive)
+    static bool addToWhitelist(const char* uid);
+    static bool addToBlacklist(const char* uid);
+    static bool addToPending(const char* uid);
 
-  // ---------- DEBUG ----------
-  void dumpWhitelist();
-  void dumpBlacklist();
-  void dumpPending();
-}
+    static void removeUID(const char* uid);
+
+    // Factory reset
+    static void factoryReset();
+
+    // Capacity
+    static uint8_t whitelistCount();
+    static uint8_t blacklistCount();
+    static uint8_t pendingCount();
+
+private:
+    static Preferences wl;
+    static Preferences bl;
+    static Preferences pd;
+
+    static bool addExclusive(Preferences& target, const char* uid);
+};

@@ -1,53 +1,54 @@
 #include "access_decision.h"
 #include "../storage/nvs_store.h"
+#include <ctype.h>
 
-// Simple UID validation (can be strengthened later)
+// ================= UID VALIDATION =================
 static bool isValidUID(const String &uid) {
-  if (uid.length() < 4 || uid.length() > 16) return false;
+    if (uid.length() < 4 || uid.length() > 16) return false;
 
-  for (char c : uid) {
-    if (!isxdigit(c)) return false;
-  }
-  return true;
+    for (char c : uid) {
+        if (!isxdigit(c)) return false;
+    }
+    return true;
 }
 
-namespace AccessDecision {
+// ================= DECISION LOGIC =================
+AccessResult AccessDecision::evaluate(const String& uid) {
 
-  AccessResult evaluate(const String &uid) {
-
-    // 1️⃣ INVALID UID
+    // 1️⃣ INVALID UID → HARD DENY
     if (!isValidUID(uid)) {
-      return AccessResult::INVALID;
+        return AccessResult::INVALID;
     }
 
-    // 2️⃣ BLACKLIST
-    if (NVSStore::isBlacklisted(uid)) {
-      return AccessResult::DENY;
+    const char* c_uid = uid.c_str();
+
+    // 2️⃣ BLACKLIST → DENY
+    if (NVSStore::isBlacklisted(c_uid)) {
+        return AccessResult::DENY_BLACKLIST;
     }
 
-    // 3️⃣ WHITELIST
-    if (NVSStore::isWhitelisted(uid)) {
-      return AccessResult::GRANT;
+    // 3️⃣ WHITELIST → GRANT
+    if (NVSStore::isWhitelisted(c_uid)) {
+        return AccessResult::GRANT;
     }
 
-    // 4️⃣ PENDING (first time)
-    if (!NVSStore::isPendingSeen(uid)) {
-      NVSStore::markPendingSeen(uid);
-      return AccessResult::PENDING;
+    // 4️⃣ UNKNOWN → ADD TO PENDING (ONCE)
+    if (NVSStore::addToPending(c_uid)) {
+        return AccessResult::PENDING_NEW;
     }
 
-    // 5️⃣ ALREADY PENDING → DENY
-    return AccessResult::DENY;
-  }
+    // 5️⃣ ALREADY PENDING → DENY (SOFT)
+    return AccessResult::PENDING_REPEAT;
+}
 
-  const char* toString(AccessResult r) {
+// ================= STRING HELPERS =================
+const char* AccessDecision::toString(AccessResult r) {
     switch (r) {
-      case AccessResult::GRANT:   return "GRANT";
-      case AccessResult::DENY:    return "DENY";
-      case AccessResult::PENDING: return "PENDING";
-      case AccessResult::INVALID: return "INVALID";
-      default:                   return "UNKNOWN";
+        case AccessResult::GRANT:           return "GRANT";
+        case AccessResult::DENY_BLACKLIST:  return "DENY_BLACKLIST";
+        case AccessResult::PENDING_NEW:     return "PENDING_NEW";
+        case AccessResult::PENDING_REPEAT:  return "PENDING_REPEAT";
+        case AccessResult::INVALID:         return "INVALID";
+        default:                            return "UNKNOWN";
     }
-  }
-
 }

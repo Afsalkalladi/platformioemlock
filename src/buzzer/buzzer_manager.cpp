@@ -22,3 +22,7 @@ void BuzzerManager::playExitTone() {
 void BuzzerManager::playRemoteTone() {
     Serial.println("[BUZZER] REMOTE");
 }
+
+void BuzzerManager::playInvalid() {
+    Serial.println("[BUZZER] INVALID");
+}

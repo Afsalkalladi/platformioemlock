@@ -28,57 +28,66 @@ void RFIDManager::init(uint8_t ssPin, uint8_t rstPin, QueueHandle_t eventQueue) 
     Serial.println("[RFID] MFRC522 initialized");
 }
 
+#include "rfid_manager.h"
+#include "core/event_queue.h"
+#include "access/access_decision.h"
+
 void RFIDManager::poll() {
+
     if (!rfid.PICC_IsNewCardPresent()) return;
     if (!rfid.PICC_ReadCardSerial()) return;
 
-    uint32_t now = millis();
-
-    // Cooldown check
-    if (now - lastReadMillis < RFID_COOLDOWN_MS) {
-        rfid.PICC_HaltA();
-        rfid.PCD_StopCrypto1();
-        return;
-    }
-
-    char uidStr[21] = {0};
     uint8_t len = rfid.uid.size;
 
     // Only allow 4 or 7 byte UIDs
     if (!(len == 4 || len == 7)) {
-        emitEvent(RFIDEventType::INVALID_UID, "LEN_ERR");
+        Event evt{};
+        evt.type = EventType::RFID_INVALID;
+        EventQueue::send(evt);
+
         rfid.PICC_HaltA();
         rfid.PCD_StopCrypto1();
         return;
     }
 
     // Convert UID to hex string
+    char uidStr[15] = {0}; // 7 bytes → 14 hex + null
     for (uint8_t i = 0; i < len; i++) {
-        sprintf(&uidStr[i * 2], "%02X", rfid.uid.uidByte[i]);
+        sprintf(uidStr + (i * 2), "%02X", rfid.uid.uidByte[i]);
     }
 
-    if (!isValidUID(uidStr)) {
-        emitEvent(RFIDEventType::INVALID_UID, uidStr);
-        rfid.PICC_HaltA();
-        rfid.PCD_StopCrypto1();
-        return;
+    // ---- ACCESS DECISION ----
+    AccessResult result = AccessDecision::evaluate(String(uidStr));
+
+    Event evt{};
+    strncpy(evt.uid, uidStr, sizeof(evt.uid) - 1);
+
+    switch (result) {
+        case AccessResult::GRANT:
+            evt.type = EventType::RFID_GRANTED;
+            break;
+
+        case AccessResult::DENY_BLACKLIST:
+            evt.type = EventType::RFID_DENIED;
+            break;
+
+        case AccessResult::PENDING_NEW:
+        case AccessResult::PENDING_REPEAT:
+            evt.type = EventType::RFID_PENDING;
+            break;
+
+        case AccessResult::INVALID:
+        default:
+            evt.type = EventType::RFID_INVALID;
+            break;
     }
 
-    // Ignore repeated UID
-    if (strcmp(uidStr, lastUID) == 0) {
-        rfid.PICC_HaltA();
-        rfid.PCD_StopCrypto1();
-        return;
-    }
-
-    strcpy(lastUID, uidStr);
-    lastReadMillis = now;
-
-    emitEvent(RFIDEventType::CARD_DETECTED, uidStr);
+    EventQueue::send(evt);
 
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
 }
+
 
 // ================= PRIVATE FUNCTIONS =================
 
