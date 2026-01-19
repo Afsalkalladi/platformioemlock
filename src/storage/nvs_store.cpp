@@ -195,6 +195,50 @@ void NVSStore::forEachPending(const std::function<void(const char* uid)>& cb) {
     Serial.printf("[NVS] forEachPending found %d UIDs\n", found);
 }
 
+void NVSStore::forEachWhitelist(const std::function<void(const char* uid)>& cb) {
+    Serial.printf("[NVS] forEachWhitelist called, count=%d\n", getCount(wl));
+    
+    nvs_iterator_t it = nvs_entry_find(NVS_DEFAULT_PART_NAME, NS_WL, NVS_TYPE_ANY);
+    
+    int found = 0;
+    while (it != NULL) {
+        nvs_entry_info_t info;
+        nvs_entry_info(it, &info);
+        if (strcmp(info.key, "__count") != 0) {
+            char keyCopy[16];
+            strncpy(keyCopy, info.key, sizeof(keyCopy) - 1);
+            keyCopy[sizeof(keyCopy) - 1] = '\0';
+            cb(keyCopy);
+            found++;
+        }
+        it = nvs_entry_next(it);
+    }
+    
+    Serial.printf("[NVS] forEachWhitelist found %d UIDs\n", found);
+}
+
+void NVSStore::forEachBlacklist(const std::function<void(const char* uid)>& cb) {
+    Serial.printf("[NVS] forEachBlacklist called, count=%d\n", getCount(bl));
+    
+    nvs_iterator_t it = nvs_entry_find(NVS_DEFAULT_PART_NAME, NS_BL, NVS_TYPE_ANY);
+    
+    int found = 0;
+    while (it != NULL) {
+        nvs_entry_info_t info;
+        nvs_entry_info(it, &info);
+        if (strcmp(info.key, "__count") != 0) {
+            char keyCopy[16];
+            strncpy(keyCopy, info.key, sizeof(keyCopy) - 1);
+            keyCopy[sizeof(keyCopy) - 1] = '\0';
+            cb(keyCopy);
+            found++;
+        }
+        it = nvs_entry_next(it);
+    }
+    
+    Serial.printf("[NVS] forEachBlacklist found %d UIDs\n", found);
+}
+
 void NVSStore::clearPending() {
     pd.clear();
     setCount(pd, 0);

@@ -47,6 +47,8 @@ public:
 
 
     static void forEachPending(const std::function<void(const char* uid)>& cb);
+    static void forEachWhitelist(const std::function<void(const char* uid)>& cb);
+    static void forEachBlacklist(const std::function<void(const char* uid)>& cb);
 
 private:
     static Preferences wl;

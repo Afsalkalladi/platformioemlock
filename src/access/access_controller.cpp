@@ -3,6 +3,7 @@
 #include "buzzer/buzzer_manager.h"
 #include <Arduino.h>
 #include "storage/log_store.h"
+#include "cloud/supabase_sync.h"
 
 // ================= TIMING =================
 
@@ -57,12 +58,14 @@ if (evt.type == EventType::RFID_GRANTED ||
 
         case EventType::EXIT_TRIGGERED:
             LogStore::log(LogEvent::EXIT_UNLOCK, "-", "ok");
+            SupabaseSync::logToSupabase("EXIT_UNLOCK", "-", "exit_button");
             unlockDoor();
             BuzzerManager::playExitTone();
             break;
 
         case EventType::REMOTE_UNLOCK:
             LogStore::log(LogEvent::REMOTE_UNLOCK, "-", "ok");
+            SupabaseSync::logToSupabase("REMOTE_UNLOCK", "-", "dashboard");
             unlockDoor();
             BuzzerManager::playRemoteTone();
             break;
@@ -70,6 +73,7 @@ if (evt.type == EventType::RFID_GRANTED ||
         case EventType::RFID_GRANTED:
             Serial.println("[RFID] CARD UID = " + String(evt.uid));
             LogStore::log(LogEvent::RFID_GRANTED, evt.uid, "ok");
+            SupabaseSync::logToSupabase("RFID_GRANTED", evt.uid, "access_granted");
             unlockDoor();
             BuzzerManager::playGrantTone();
             break;
@@ -77,18 +81,23 @@ if (evt.type == EventType::RFID_GRANTED ||
         case EventType::RFID_DENIED:
             Serial.println("[RFID] CARD UID = " + String(evt.uid));
             LogStore::log(LogEvent::RFID_DENIED, evt.uid, "blacklist");
+            SupabaseSync::logToSupabase("RFID_DENIED", evt.uid, "blacklisted");
             BuzzerManager::playDenyTone();
             break;
 
         case EventType::RFID_PENDING:
             Serial.println("[RFID] CARD UID = " + String(evt.uid));
             LogStore::log(LogEvent::RFID_PENDING, evt.uid, "pending");
+            SupabaseSync::logToSupabase("RFID_PENDING", evt.uid, "unknown_card");
             BuzzerManager::playPendingTone();
+            // Report unknown card to Supabase
+            SupabaseSync::addPendingToSupabase(evt.uid);
             break;
             
         case EventType::RFID_INVALID:
             Serial.println("[RFID] INVALID CARD");
             LogStore::log(LogEvent::RFID_INVALID, "-", "invalid UID");
+            SupabaseSync::logToSupabase("RFID_INVALID", "-", "invalid_uid");
             BuzzerManager::playInvalid();
             break;
 

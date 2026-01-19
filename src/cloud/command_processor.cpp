@@ -1,5 +1,6 @@
 #include "command_processor.h"
 #include "supabase_config.h"
+#include "supabase_sync.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include "../core/event_queue.h"
@@ -204,6 +205,11 @@ void CommandProcessor::update() {
         if (NVSStore::addToWhitelist(uid)) {
             Serial.println("[CMD] Whitelisted UID: " + String(uid));
             LogStore::log(LogEvent::UID_WHITELISTED, uid, "supabase");
+            
+            // Sync to Supabase
+            SupabaseSync::syncUidToSupabase(uid, "WHITELIST");
+            SupabaseSync::removePendingFromSupabase(uid);
+            
             ackCommand(cmdId, "WHITELIST_ADD_OK");
         } else {
             Serial.println("[CMD] Whitelist FAILED for UID: " + String(uid));
@@ -221,6 +227,11 @@ void CommandProcessor::update() {
         if (NVSStore::addToBlacklist(uid)) {
             Serial.println("[CMD] Blacklisted UID: " + String(uid));
             LogStore::log(LogEvent::UID_BLACKLISTED, uid, "supabase");
+            
+            // Sync to Supabase
+            SupabaseSync::syncUidToSupabase(uid, "BLACKLIST");
+            SupabaseSync::removePendingFromSupabase(uid);
+            
             ackCommand(cmdId, "BLACKLIST_ADD_OK");
         } else {
             Serial.println("[CMD] Blacklist FAILED for UID: " + String(uid));
@@ -238,6 +249,10 @@ void CommandProcessor::update() {
         NVSStore::removeUID(uid);
         Serial.println("[CMD] Removed UID: " + String(uid));
         LogStore::log(LogEvent::UID_REMOVED, uid, "supabase");
+        
+        // Sync to Supabase
+        SupabaseSync::removeUidFromSupabase(uid);
+        
         ackCommand(cmdId, "REMOVE_UID_OK");
 
         lastAckedCmd = cmdId;

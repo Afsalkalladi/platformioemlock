@@ -3,6 +3,7 @@
 #include <LittleFS.h>
 #include <time.h>
 #include "cloud/log_sync.h"
+#include "cloud/supabase_sync.h"
 
 // ===== CORE =====
 #include "core/event_types.h"
@@ -138,10 +139,12 @@ void loop() {
 
     if (!cloudInitDone && WiFiManager::getState() == WiFiState::READY) {
         CommandProcessor::init();
+        SupabaseSync::init();
         cloudInitDone = true;
     }
     LogSync::update();
     CommandProcessor::update();
+    SupabaseSync::update();
 
 
     static uint32_t lastPrint = 0;
@@ -153,6 +156,11 @@ if (Serial.available()) {
     char c = Serial.read();
     if (c == 'S' || c == 's') {
         LogSync::triggerSync();
+    }
+    // Press 'U' to manually sync all UIDs to Supabase
+    if (c == 'U' || c == 'u') {
+        Serial.println("[MANUAL] Triggering full Supabase sync...");
+        SupabaseSync::syncAllToSupabase();
     }
 }
 
