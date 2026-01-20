@@ -3,6 +3,9 @@
 // ==================== FIRMWARE INFO ====================
 #define FW_VERSION "1.0.0"
 
+// ==================== PIN CONFIGURATION ====================
+#define BUZZER_PIN                 32
+
 // ==================== HEALTH REPORTING ====================
 #define HEALTH_PRINT_INTERVAL_MS   5000   // Print health every 5s
 

@@ -191,12 +191,14 @@ void CommandProcessor::update() {
         return;
     }
 
-    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
-    if (strcmp(type, "GET_PENDING") == 0) {
-        Serial.println("[CMD] GET_PENDING received - building JSON array");
-
-        String result = "[";
-        bool first = true;
+    // -------- WHITELIST_ADD: Add UID to whitelist --------
+    if (strcmp(type, "WHITELIST_ADD") == 0) {
+        if (!uid || strlen(uid) == 0) {
+            ackCommand(cmdId, "WHITELIST_ADD_NO_UID");
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+            return;
+        }
 
         if (NVSStore::addToWhitelist(uid)) {
             Serial.println("[CMD] Whitelisted UID: " + String(uid));
@@ -213,12 +215,23 @@ void CommandProcessor::update() {
         return;
     }
 
-        result += "]";
-
-        Serial.printf("[CMD] Pending UIDs JSON: %s\n", result.c_str());
-        
-        if (ackCommand(cmdId, result)) {
+    // -------- BLACKLIST_ADD: Add UID to blacklist --------
+    if (strcmp(type, "BLACKLIST_ADD") == 0) {
+        if (!uid || strlen(uid) == 0) {
+            ackCommand(cmdId, "BLACKLIST_ADD_NO_UID");
             lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+            return;
+        }
+
+        if (NVSStore::addToBlacklist(uid)) {
+            Serial.println("[CMD] Blacklisted UID: " + String(uid));
+            LogStore::log(LogEvent::UID_BLACKLISTED, uid, "supabase");
+            ackCommand(cmdId, "BLACKLIST_ADD_OK");
+        } else {
+            Serial.println("[CMD] Blacklist FAILED for UID: " + String(uid));
+            LogStore::log(LogEvent::COMMAND_ERROR, uid, "bl_failed");
+            ackCommand(cmdId, "BLACKLIST_ADD_FAIL");
         }
 
         lastAckedCmd = cmdId;
@@ -226,7 +239,14 @@ void CommandProcessor::update() {
         return;
     }
 
+    // -------- REMOVE_UID: Remove UID from all lists --------
     if (strcmp(type, "REMOVE_UID") == 0) {
+        if (!uid || strlen(uid) == 0) {
+            ackCommand(cmdId, "REMOVE_UID_NO_UID");
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+            return;
+        }
 
         NVSStore::removeUID(uid);
         Serial.println("[CMD] Removed UID: " + String(uid));
@@ -237,50 +257,48 @@ void CommandProcessor::update() {
         NVSStore::setLastCommandId(cmdId);
         return;
     }
+
+    // -------- SYNC_UIDS: Full sync from server --------
     if (strcmp(type, "SYNC_UIDS") == 0) {
         Serial.println("[CMD] SYNC_UIDS received");
 
         JsonObject payload = cmd["payload"];
-if (payload.isNull()) {
-    ackCommand(cmdId, "SYNC_UIDS_NO_PAYLOAD");
-    lastAckedCmd = cmdId;
-    NVSStore::setLastCommandId(cmdId);
-    return;
-}
-
-JsonArray wl = payload["whitelist"];
-JsonArray bl = payload["blacklist"];
-
-if (wl.isNull() || bl.isNull()) {
-    ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
-    lastAckedCmd = cmdId;
-    NVSStore::setLastCommandId(cmdId);
-    return;
-}
-
-
-        if (!wl.isNull() && !bl.isNull()) {
-
-            NVSStore::clearWhitelist();
-            NVSStore::clearBlacklist();
-            NVSStore::clearPending();   // <-- ADD THIS LINE HERE
-
-
-            for (JsonVariant v : wl) {
-                NVSStore::addToWhitelist(v.as<const char*>());
-                Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
-            }
-
-            for (JsonVariant v : bl) {
-                NVSStore::addToBlacklist(v.as<const char*>());
-                Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
-            }
-
-            LogStore::log(LogEvent::UID_SYNC, "-", "cloud");
-            ackCommand(cmdId, "SYNC_UIDS_OK");
-        } else {
-            ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
+        if (payload.isNull()) {
+            ackCommand(cmdId, "SYNC_UIDS_NO_PAYLOAD");
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+            return;
         }
+
+        JsonArray wl = payload["whitelist"];
+        JsonArray bl = payload["blacklist"];
+
+        if (wl.isNull() || bl.isNull()) {
+            ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+            return;
+        }
+
+        // Clear all local state first
+        NVSStore::clearWhitelist();
+        NVSStore::clearBlacklist();
+        NVSStore::clearPending();
+
+        // Apply whitelist from server
+        for (JsonVariant v : wl) {
+            NVSStore::addToWhitelist(v.as<const char*>());
+            Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
+        }
+
+        // Apply blacklist from server
+        for (JsonVariant v : bl) {
+            NVSStore::addToBlacklist(v.as<const char*>());
+            Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
+        }
+
+        LogStore::log(LogEvent::UID_SYNC, "-", "cloud");
+        ackCommand(cmdId, "SYNC_UIDS_OK");
 
         lastAckedCmd = cmdId;
         NVSStore::setLastCommandId(cmdId);
