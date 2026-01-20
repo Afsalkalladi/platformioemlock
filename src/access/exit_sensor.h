@@ -18,7 +18,7 @@ struct ExitEvent {
 
 class ExitSensor {
 public:
-    static void init(uint8_t pin, QueueHandle_t eventQueue);
+    static void init(uint8_t pin);
     static void poll();   // non-blocking, Core 1 only
 
 private:

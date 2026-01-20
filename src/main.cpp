@@ -11,6 +11,8 @@
 // ===== ACCESS =====
 #include "access/rfid_manager.h"
 #include "access/access_controller.h"
+#include "access/exit_sensor.h"
+#include "config/config.h"
 
 // ===== HARDWARE =====
 #include "relay/relay_controller.h"
@@ -41,6 +43,9 @@ void core1_access_task(void* param) {
 
     while (true) {
 
+        // Poll exit sensor (physical)
+        ExitSensor::poll();
+
         // 1️⃣ Poll RFID hardware
         RFIDManager::poll();
 
@@ -53,24 +58,7 @@ void core1_access_task(void* param) {
         // 3️⃣ Update access controller (timers / cooldown)
         AccessController::update();
 
-        // 4️⃣ DEBUG: EXIT SIMULATION (PRESS 'E')
-    // ---------------- DEBUG EXIT SIMULATION ----------------
- if (Serial.available()) {
-            char c = Serial.read();
-            if ((c == 'E' || c == 'e') && !exitSimLatch) {
-                Event e{};
-                e.type = EventType::EXIT_TRIGGERED;
-                EventQueue::send(e);
-                Serial.println("[SIM] EXIT_TRIGGERED");
-
-                exitSimLatch = true;
-                exitSimLatchTime = millis();
-            }
-        }
-
-        if (exitSimLatch && millis() - exitSimLatchTime > EXIT_SIM_LATCH_MS) {
-            exitSimLatch = false;
-        }
+        // (No keyboard simulation) - physical exit sensor now used
 
         vTaskDelay(5 / portTICK_PERIOD_MS);
 
@@ -98,6 +86,9 @@ void setup() {
     NVSStore::init();
     LogStore::init();
     
+    // Init exit sensor (physical) after event queue
+    ExitSensor::init(EXIT_SENSOR_PIN);
+
     LogSync::init();
 
     Serial.print("ESP32 MAC: ");

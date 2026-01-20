@@ -5,6 +5,7 @@
 
 // ==================== PIN CONFIGURATION ====================
 #define BUZZER_PIN                 32
+#define EXIT_SENSOR_PIN            35
 
 // ==================== HEALTH REPORTING ====================
 #define HEALTH_PRINT_INTERVAL_MS   5000   // Print health every 5s

@@ -1,10 +1,11 @@
 #include "exit_sensor.h"
 #include <Arduino.h>
+#include "core/event_queue.h"
+#include "core/event_types.h"
 
 // ================= CONFIG =================
 
 static uint8_t exitPin;
-static QueueHandle_t exitQueue = nullptr;
 
 // Timing (LOCKED)
 static const uint32_t EXIT_DEBOUNCE_MS = 80;
@@ -12,21 +13,25 @@ static const uint32_t EXIT_COOLDOWN_MS = 4000;
 
 // ================= STATE =================
 
-static bool lastStableState = LOW;     // NC sensor idle = LOW
+static bool lastStableState = LOW;     // current stable state
 static bool debouncing = false;
+static bool idleState = LOW;           // measured idle state at init
+static bool activeState = HIGH;        // state representing "presence"
 
 static uint32_t debounceStart = 0;
 static uint32_t lastTriggerTime = 0;
 
 // ================= PUBLIC =================
 
-void ExitSensor::init(uint8_t pin, QueueHandle_t eventQueue) {
+void ExitSensor::init(uint8_t pin) {
     exitPin = pin;
-    exitQueue = eventQueue;
 
     pinMode(exitPin, INPUT);  // GPIO 35: input-only, no pullups
 
-    lastStableState = digitalRead(exitPin);
+    // Measure idle level and compute active level (assume active is opposite)
+    idleState = digitalRead(exitPin);
+    activeState = !idleState;
+    lastStableState = idleState;
     lastTriggerTime = 0;
 
     Serial.println("[EXIT] Exit sensor initialized");
@@ -42,22 +47,22 @@ void ExitSensor::poll() {
 
     bool currentState = digitalRead(exitPin);
 
-    // Detect rising edge (LOW → HIGH)
+    // Detect activation (idle -> active) and trigger immediately when active
     if (!debouncing) {
-        if (lastStableState == LOW && currentState == HIGH) {
+        if (currentState == activeState && lastStableState == idleState) {
             debouncing = true;
             debounceStart = now;
         }
     } else {
         // Debounce in progress
-        if (currentState == HIGH) {
+        if (currentState == activeState) {
             if (now - debounceStart >= EXIT_DEBOUNCE_MS) {
-                // Valid exit trigger
+                // Valid exit trigger (presence detected)
                 emitEvent();
                 lastTriggerTime = now;
 
                 debouncing = false;
-                lastStableState = HIGH;
+                lastStableState = activeState;
             }
         } else {
             // Bounce/noise → cancel debounce
@@ -65,19 +70,16 @@ void ExitSensor::poll() {
         }
     }
 
-    // Reset stable state when signal goes LOW again
-    if (lastStableState == HIGH && currentState == LOW) {
-        lastStableState = LOW;
+    // Reset stable state back to idle when active clears
+    if (lastStableState == activeState && currentState == idleState) {
+        lastStableState = idleState;
     }
 }
 
 // ================= PRIVATE =================
 
 void ExitSensor::emitEvent() {
-    if (!exitQueue) return;
-
-    ExitEvent evt;
-    evt.type = ExitEventType::EXIT_TRIGGERED;
-
-    xQueueSend(exitQueue, &evt, 0);
+    Event e{};
+    e.type = EventType::EXIT_TRIGGERED;
+    EventQueue::send(e);
 }
