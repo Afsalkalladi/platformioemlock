@@ -191,15 +191,12 @@ void CommandProcessor::update() {
         return;
     }
 
-    // ---- UID REQUIRED BELOW ----
-    if (!uid || strlen(uid) == 0) {
-        LogStore::log(LogEvent::COMMAND_ERROR, "-", "missing_uid");
-        ackCommand(cmdId, "MISSING_UID");
-        lastAckedCmd = cmdId;
-        return;
-    }
+    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
+    if (strcmp(type, "GET_PENDING") == 0) {
+        Serial.println("[CMD] GET_PENDING received - building JSON array");
 
-    if (strcmp(type, "WHITELIST_ADD") == 0) {
+        String result = "[";
+        bool first = true;
 
         if (NVSStore::addToWhitelist(uid)) {
             Serial.println("[CMD] Whitelisted UID: " + String(uid));
@@ -216,16 +213,12 @@ void CommandProcessor::update() {
         return;
     }
 
-    if (strcmp(type, "BLACKLIST_ADD") == 0) {
+        result += "]";
 
-        if (NVSStore::addToBlacklist(uid)) {
-            Serial.println("[CMD] Blacklisted UID: " + String(uid));
-            LogStore::log(LogEvent::UID_BLACKLISTED, uid, "supabase");
-            ackCommand(cmdId, "BLACKLIST_ADD_OK");
-        } else {
-            Serial.println("[CMD] Blacklist FAILED for UID: " + String(uid));
-            LogStore::log(LogEvent::COMMAND_ERROR, uid, "bl_failed");
-            ackCommand(cmdId, "BLACKLIST_ADD_FAIL");
+        Serial.printf("[CMD] Pending UIDs JSON: %s\n", result.c_str());
+        
+        if (ackCommand(cmdId, result)) {
+            lastAckedCmd = cmdId;
         }
 
         lastAckedCmd = cmdId;
@@ -245,6 +238,7 @@ void CommandProcessor::update() {
         return;
     }
     if (strcmp(type, "SYNC_UIDS") == 0) {
+        Serial.println("[CMD] SYNC_UIDS received");
 
         JsonObject payload = cmd["payload"];
 if (payload.isNull()) {

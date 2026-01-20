@@ -8,21 +8,20 @@ static const uint32_t MAX_DAYS_LOCAL = 30;
 // ========== HELPERS ==========
 static const char* logEventToStr(LogEvent e) {
     switch (e) {
-        case LogEvent::RFID_GRANTED:  return "RFID_GRANTED";
-        case LogEvent::RFID_DENIED:   return "RFID_DENIED";
-        case LogEvent::RFID_PENDING:  return "RFID_PENDING";
-        case LogEvent::RFID_INVALID:  return "RFID_INVALID";
-        case LogEvent::EXIT_UNLOCK:   return "EXIT_UNLOCK";
-        case LogEvent::REMOTE_UNLOCK: return "REMOTE_UNLOCK";
-        case LogEvent::SYSTEM_BOOT:   return "SYSTEM_BOOT";
-        case LogEvent::WIFI_LOST:     return "WIFI_LOST";
-        case LogEvent::COMMAND_ERROR: return "COMMAND_ERROR";
-        case LogEvent::UID_WHITELISTED:  return "UID_WHITELISTED";
-        case LogEvent::UID_BLACKLISTED:  return "UID_BLACKLISTED";
-        case LogEvent::UID_REMOVED:      return "UID_REMOVED";
-        case LogEvent::UID_SYNC: return "UID_SYNC";
-
-        default:                      return "UNKNOWN";
+        case LogEvent::ACCESS_GRANTED:  return "ACCESS_GRANTED";
+        case LogEvent::ACCESS_DENIED:   return "ACCESS_DENIED";
+        case LogEvent::UNKNOWN_CARD:    return "UNKNOWN_CARD";
+        case LogEvent::RFID_INVALID:    return "RFID_INVALID";
+        case LogEvent::EXIT_UNLOCK:     return "EXIT_UNLOCK";
+        case LogEvent::REMOTE_UNLOCK:   return "REMOTE_UNLOCK";
+        case LogEvent::SYSTEM_BOOT:     return "SYSTEM_BOOT";
+        case LogEvent::WIFI_LOST:       return "WIFI_LOST";
+        case LogEvent::COMMAND_ERROR:   return "COMMAND_ERROR";
+        case LogEvent::UID_WHITELISTED: return "UID_WHITELISTED";
+        case LogEvent::UID_BLACKLISTED: return "UID_BLACKLISTED";
+        case LogEvent::UID_REMOVED:     return "UID_REMOVED";
+        case LogEvent::UID_SYNC:        return "UID_SYNC";
+        default:                        return "UNKNOWN";
     }
 }
 
@@ -106,4 +105,72 @@ void LogStore::cleanupOldLogs() {
         }
         f = root.openNextFile();
     }
+}
+
+void LogStore::forEach(std::function<void(const LogEntry&)> callback) {
+    File root = LittleFS.open("/");
+    if (!root) {
+        Serial.println("[LOG] Failed to open root");
+        return;
+    }
+
+    Serial.println("[LOG] Scanning log files...");
+
+    File file = root.openNextFile();
+    while (file) {
+        String name = String(file.name());
+        Serial.printf("[LOG] Found file: %s\n", name.c_str());
+        
+        // Check for log files (name is "log_YYYYMMDD.txt" without leading slash)
+        if (name.startsWith("log_") || name.startsWith("/log_")) {
+            Serial.printf("[LOG] Processing: %s\n", name.c_str());
+            
+            // Read each line from log file
+            while (file.available()) {
+                String line = file.readStringUntil('\n');
+                line.trim();
+                
+                if (line.length() < 10) continue;
+
+                // Parse: "2026-01-20 20:45:03 | ACCESS_GRANTED | A1B2C3D4 | info"
+                int pipe1 = line.indexOf('|');
+                int pipe2 = line.indexOf('|', pipe1 + 1);
+                int pipe3 = line.indexOf('|', pipe2 + 1);
+
+                if (pipe1 < 0 || pipe2 < 0 || pipe3 < 0) continue;
+
+                String timestamp = line.substring(0, pipe1);
+                String eventStr = line.substring(pipe1 + 1, pipe2);
+                String uid = line.substring(pipe2 + 1, pipe3);
+                String info = line.substring(pipe3 + 1);
+
+                timestamp.trim();
+                eventStr.trim();
+                uid.trim();
+                info.trim();
+
+                LogEntry entry = {};
+                entry.timestamp = 0;
+                
+                // Map event string to enum (support both old and new names)
+                if (eventStr == "ACCESS_GRANTED" || eventStr == "RFID_GRANTED") 
+                    entry.event = LogEvent::ACCESS_GRANTED;
+                else if (eventStr == "ACCESS_DENIED" || eventStr == "RFID_DENIED") 
+                    entry.event = LogEvent::ACCESS_DENIED;
+                else if (eventStr == "UNKNOWN_CARD" || eventStr == "RFID_PENDING") 
+                    entry.event = LogEvent::UNKNOWN_CARD;
+                else if (eventStr == "REMOTE_UNLOCK") 
+                    entry.event = LogEvent::REMOTE_UNLOCK;
+                else 
+                    continue; // Skip non-access events
+
+                strncpy(entry.uid, uid.c_str(), sizeof(entry.uid) - 1);
+                strncpy(entry.info, info.c_str(), sizeof(entry.info) - 1);
+
+                callback(entry);
+            }
+        }
+        file = root.openNextFile();
+    }
+    Serial.println("[LOG] Done scanning");
 }
