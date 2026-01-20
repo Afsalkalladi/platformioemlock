@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Command, DeviceSummary, DeviceDetail, DeviceUID, PendingUID, CommandType } from './types'
+import type { Command, DeviceSummary, DeviceDetail, DeviceUID, PendingUID, CommandType, AccessLog } from './types'
 
 // Query #1: List all devices (using device_overview view)
 export async function fetchDevices(): Promise<DeviceSummary[]> {
