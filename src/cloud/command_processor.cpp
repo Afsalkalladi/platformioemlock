@@ -147,6 +147,29 @@ void CommandProcessor::update() {
         return;
     }
 
+    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
+    if (strcmp(type, "GET_PENDING") == 0) {
+        Serial.println("[CMD] GET_PENDING received - building JSON array");
+
+        String result = "[";
+        bool first = true;
+
+        NVSStore::forEachPending([&result, &first](const char* uid) {
+            if (!first) result += ",";
+            result += "\"" + String(uid) + "\"";
+            first = false;
+        });
+
+        result += "]";
+
+        Serial.printf("[CMD] Pending UIDs JSON: %s\n", result.c_str());
+        
+        if (ackCommand(cmdId, result)) {
+            lastAckedCmd = cmdId;
+        }
+        return;
+    }
+
     // ---- UID REQUIRED BELOW ----
     if (!uid || strlen(uid) == 0) {
         LogStore::log(LogEvent::COMMAND_ERROR, "-", "missing_uid");
@@ -226,47 +249,6 @@ void CommandProcessor::update() {
         lastAckedCmd = cmdId;
         return;
     }
-
-    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
-    if (strcmp(type, "GET_PENDING") == 0) {
-
-        Serial.println("[CMD] GET_PENDING received - reporting all pending UIDs");
-
-        uint8_t count = 0;
-
-        NVSStore::forEachPending([&count](const char* uid) {
-
-            HTTPClient post;
-            String url = String(SUPABASE_URL) + "/rest/v1/device_pending_reports";
-
-            post.begin(url);
-            post.addHeader("apikey", SUPABASE_KEY);
-            post.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-            post.addHeader("Content-Type", "application/json");
-            post.addHeader("Prefer", "return=minimal");
-
-            String body =
-                "{\"device_id\":\"" + deviceId +
-                "\",\"uid\":\"" + String(uid) + "\"}";
-
-            int code = post.POST(body);
-            post.end();
-
-            if (code == 201 || code == 200) {
-                Serial.printf("[PENDING] Reported: %s\n", uid);
-                count++;
-            } else {
-                Serial.printf("[PENDING] Failed to report %s (HTTP %d)\n", uid, code);
-            }
-        });
-
-        String result = "PENDING_SENT:" + String(count);
-        ackCommand(cmdId, result.c_str());
-        lastAckedCmd = cmdId;
-        return;
-    }
-
-    
 
     // ---- UNKNOWN COMMAND ----
     Serial.println("[CMD] Unknown command type: " + String(type));
