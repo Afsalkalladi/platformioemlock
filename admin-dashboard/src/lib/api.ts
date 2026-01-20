@@ -199,6 +199,11 @@ export async function sendGetPending(deviceId: string): Promise<Command> {
   return sendCommand(deviceId, 'GET_PENDING')
 }
 
+// Query #12: Sync logs
+export async function sendSyncLogs(deviceId: string): Promise<Command> {
+  return sendCommand(deviceId, 'SYNC_LOGS')
+}
+
 // Query #14: Fetch access logs
 export async function fetchAccessLogs(deviceId: string, limit = 100): Promise<AccessLog[]> {
   const { data, error } = await supabase

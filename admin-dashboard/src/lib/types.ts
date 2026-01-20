@@ -7,6 +7,7 @@ export type CommandType =
   | 'REMOVE_UID'
   | 'SYNC_UIDS'
   | 'GET_PENDING'
+  | 'SYNC_LOGS'
 
 export type UIDState = 'WHITELIST' | 'BLACKLIST'
 

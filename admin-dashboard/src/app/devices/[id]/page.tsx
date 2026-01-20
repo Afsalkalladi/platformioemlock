@@ -14,6 +14,7 @@ import {
   sendRemoteUnlock,
   sendGetPending,
   sendSyncUIDs,
+  sendSyncLogs,
   sendWhitelistAdd,
   sendBlacklistAdd,
   sendRemoveUID,
@@ -141,6 +142,12 @@ export default function DeviceDetailPage() {
               }
               onComplete={loadAll}
               variant="danger"
+            />
+            <CommandButton
+              label="Sync Logs"
+              onClick={() => sendSyncLogs(deviceId)}
+              onComplete={loadAll}
+              variant="secondary"
             />
           </div>
         </div>

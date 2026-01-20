@@ -69,20 +69,20 @@ if (evt.type == EventType::RFID_GRANTED ||
 
         case EventType::RFID_GRANTED:
             Serial.println("[RFID] CARD UID = " + String(evt.uid));
-            LogStore::log(LogEvent::RFID_GRANTED, evt.uid, "ok");
+            LogStore::log(LogEvent::ACCESS_GRANTED, evt.uid, "ok");
             unlockDoor();
             BuzzerManager::playGrantTone();
             break;
 
         case EventType::RFID_DENIED:
             Serial.println("[RFID] CARD UID = " + String(evt.uid));
-            LogStore::log(LogEvent::RFID_DENIED, evt.uid, "blacklist");
+            LogStore::log(LogEvent::ACCESS_DENIED, evt.uid, "blacklist");
             BuzzerManager::playDenyTone();
             break;
 
         case EventType::RFID_PENDING:
             Serial.println("[RFID] CARD UID = " + String(evt.uid));
-            LogStore::log(LogEvent::RFID_PENDING, evt.uid, "pending");
+            LogStore::log(LogEvent::UNKNOWN_CARD, evt.uid, "pending");
             BuzzerManager::playPendingTone();
             break;
             

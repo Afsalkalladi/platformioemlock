@@ -1,20 +1,28 @@
 #pragma once
 #include <Arduino.h>
+#include <functional>
 
 enum class LogEvent : uint8_t {
-    RFID_GRANTED,
-    RFID_DENIED,
-    RFID_PENDING,
-    RFID_INVALID,
-    EXIT_UNLOCK,
-    REMOTE_UNLOCK,
-    SYSTEM_BOOT,
-    WIFI_LOST,
-    UID_WHITELISTED,
-    UID_BLACKLISTED,
-    UID_REMOVED,
-    UID_SYNC,
-    COMMAND_ERROR
+    ACCESS_GRANTED = 0,  // Whitelisted card
+    ACCESS_DENIED = 1,   // Blacklisted card
+    UNKNOWN_CARD = 2,    // Pending card
+    RFID_INVALID = 3,
+    EXIT_UNLOCK = 4,
+    REMOTE_UNLOCK = 5,
+    SYSTEM_BOOT = 6,
+    WIFI_LOST = 7,
+    UID_WHITELISTED = 8,
+    UID_BLACKLISTED = 9,
+    UID_REMOVED = 10,
+    UID_SYNC = 11,
+    COMMAND_ERROR = 12
+};
+
+struct LogEntry {
+    uint32_t timestamp;
+    LogEvent event;
+    char uid[16];
+    char info[32];
 };
 
 class LogStore {
@@ -25,5 +33,6 @@ public:
                     const char* uid = "-",
                     const char* info = "");
 
+    static void forEach(std::function<void(const LogEntry&)> callback);
     static void cleanupOldLogs();   // >30 days
 };
