@@ -33,14 +33,20 @@ static void decCount(Preferences& p) {
 }
 
 // ================= INIT =================
+static const char* NS_SYS = "sys";
+Preferences NVSStore::sys;
+
 
 void NVSStore::init() {
     wl.begin(NS_WL, false);
     bl.begin(NS_BL, false);
     pd.begin(NS_PD, false);
+    sys.begin(NS_SYS, false);
 
     Serial.println("[NVS] Store initialized");
 }
+
+
 
 // ================= QUERIES =================
 
@@ -105,7 +111,12 @@ bool NVSStore::addToBlacklist(const char* uid) {
 
 bool NVSStore::addToPending(const char* uid) {
 
-    if (getState(uid) != UIDState::NONE) return false;
+    Serial.printf("[NVS] addToPending called for: %s\n", uid);
+    
+    if (getState(uid) != UIDState::NONE) {
+        Serial.printf("[NVS] UID %s already exists in some list\n", uid);
+        return false;
+    }
 
     if (getCount(pd) >= MAX_UIDS) {
         Serial.println("[NVS] Pending full");
@@ -114,6 +125,7 @@ bool NVSStore::addToPending(const char* uid) {
 
     pd.putUChar(uid, 1);
     incCount(pd);
+    Serial.printf("[NVS] Added %s to pending, new count=%d\n", uid, getCount(pd));
     return true;
 }
 
@@ -156,16 +168,38 @@ void NVSStore::factoryReset() {
 }
 
 void NVSStore::forEachPending(const std::function<void(const char* uid)>& cb) {
+    Serial.printf("[NVS] forEachPending called, count=%d\n", getCount(pd));
+    
     nvs_iterator_t it = nvs_entry_find(NVS_DEFAULT_PART_NAME, NS_PD, NVS_TYPE_ANY);
+    
+    if (it == NULL) {
+        Serial.println("[NVS] Iterator is NULL - no entries found in namespace");
+    }
+    
+    int found = 0;
     while (it != NULL) {
         nvs_entry_info_t info;
         nvs_entry_info(it, &info);
+        Serial.printf("[NVS] Found key: %s\n", info.key);
         if (strcmp(info.key, "__count") != 0) {
-            cb(info.key);
+            // Copy key to local buffer before calling callback
+            char keyCopy[16];
+            strncpy(keyCopy, info.key, sizeof(keyCopy) - 1);
+            keyCopy[sizeof(keyCopy) - 1] = '\0';
+            cb(keyCopy);
+            found++;
         }
         it = nvs_entry_next(it);
     }
+    
+    Serial.printf("[NVS] forEachPending found %d UIDs\n", found);
 }
+
+void NVSStore::clearPending() {
+    pd.clear();
+    setCount(pd, 0);
+}
+
 
 // ================= COUNTS =================
 
@@ -173,3 +207,11 @@ uint8_t NVSStore::whitelistCount() { return getCount(wl); }
 uint8_t NVSStore::blacklistCount() { return getCount(bl); }
 uint8_t NVSStore::pendingCount()   { return getCount(pd); }
 
+
+void NVSStore::setLastCommandId(const char* id) {
+    sys.putString("last_cmd", id);
+}
+
+String NVSStore::getLastCommandId() {
+    return sys.getString("last_cmd", "");
+}

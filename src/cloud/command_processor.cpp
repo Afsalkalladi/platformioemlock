@@ -9,15 +9,16 @@
 #include <ArduinoJson.h>
 
 static String deviceId;
-static String lastAckedCmd;
+static String lastAckedCmd; // runtime cache
 
 
 // ---------- JSON ESCAPE (REQUIRED) ----------
 static String jsonEscape(const String& s) {
     String out;
-    out.reserve(s.length() + 8);
+    out.reserve(s.length() + 16);
 
-    for (char c : s) {
+    for (size_t i = 0; i < s.length(); i++) {
+        char c = s[i];
         switch (c) {
             case '\"': out += "\\\""; break;
             case '\\': out += "\\\\"; break;
@@ -29,7 +30,6 @@ static String jsonEscape(const String& s) {
     }
     return out;
 }
-
 
 
 static bool ackCommand(const String& cmdId, const String& result) {
@@ -44,8 +44,9 @@ static bool ackCommand(const String& cmdId, const String& result) {
     http.addHeader("Content-Type", "application/json");
 
     String body =
-        "{\"status\":\"DONE\",\"result\":\"" +
-        jsonEscape(result) + "\"}";
+        "{\"status\":\"DONE\",\"result\":\"" + jsonEscape(result) + "\"}";
+
+
 
     int code = http.PATCH(body);
     http.end();
@@ -69,6 +70,9 @@ static bool ackCommand(const String& cmdId, const String& result) {
 void CommandProcessor::init() {
     deviceId = WiFi.macAddress();
     deviceId.replace(":", "");
+    lastAckedCmd = NVSStore::getLastCommandId();
+    Serial.println("[CMD] Last command restored: " + lastAckedCmd);
+
     Serial.println("[CMD] Supabase processor ready for " + deviceId);
 }
 
@@ -143,6 +147,46 @@ void CommandProcessor::update() {
 
         if (ackCommand(cmdId, "REMOTE_UNLOCK_OK")) {
             lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+        }
+        return;
+    }
+
+    // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
+    if (strcmp(type, "GET_PENDING") == 0) {
+
+        StaticJsonDocument<512> out;
+        JsonArray arr = out.to<JsonArray>();
+
+        NVSStore::forEachPending([&](const char* uid) {
+            // Use String to force ArduinoJson to copy the data
+            arr.add(String(uid));
+        });
+
+        String result;
+        serializeJson(arr, result);
+
+        LogStore::log(LogEvent::UID_SYNC, "-", "get_pending");
+
+        if (ackCommand(cmdId, "PENDING:" + result)) {
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
+        }
+        return;
+    }
+
+    // -------- GET_DEBUG: Get NVS stats --------
+    if (strcmp(type, "GET_DEBUG") == 0) {
+
+        String debug = "WL:" + String(NVSStore::whitelistCount()) +
+                       ",BL:" + String(NVSStore::blacklistCount()) +
+                       ",PD:" + String(NVSStore::pendingCount());
+
+        Serial.println("[CMD] GET_DEBUG: " + debug);
+
+        if (ackCommand(cmdId, debug)) {
+            lastAckedCmd = cmdId;
+            NVSStore::setLastCommandId(cmdId);
         }
         return;
     }
@@ -154,11 +198,20 @@ void CommandProcessor::update() {
         String result = "[";
         bool first = true;
 
-        NVSStore::forEachPending([&result, &first](const char* uid) {
-            if (!first) result += ",";
-            result += "\"" + String(uid) + "\"";
-            first = false;
-        });
+        if (NVSStore::addToWhitelist(uid)) {
+            Serial.println("[CMD] Whitelisted UID: " + String(uid));
+            LogStore::log(LogEvent::UID_WHITELISTED, uid, "supabase");
+            ackCommand(cmdId, "WHITELIST_ADD_OK");
+        } else {
+            Serial.println("[CMD] Whitelist FAILED for UID: " + String(uid));
+            LogStore::log(LogEvent::COMMAND_ERROR, uid, "wl_failed");
+            ackCommand(cmdId, "WHITELIST_ADD_FAIL");
+        }
+
+        lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
+        return;
+    }
 
         result += "]";
 
@@ -167,20 +220,51 @@ void CommandProcessor::update() {
         if (ackCommand(cmdId, result)) {
             lastAckedCmd = cmdId;
         }
+
+        lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
         return;
     }
 
-    // -------- SYNC_UIDS: Reset local lists from cloud --------
+    if (strcmp(type, "REMOVE_UID") == 0) {
+
+        NVSStore::removeUID(uid);
+        Serial.println("[CMD] Removed UID: " + String(uid));
+        LogStore::log(LogEvent::UID_REMOVED, uid, "supabase");
+        ackCommand(cmdId, "REMOVE_UID_OK");
+
+        lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
+        return;
+    }
     if (strcmp(type, "SYNC_UIDS") == 0) {
         Serial.println("[CMD] SYNC_UIDS received");
 
-        JsonArray wl = cmd["payload"]["whitelist"];
-        JsonArray bl = cmd["payload"]["blacklist"];
+        JsonObject payload = cmd["payload"];
+if (payload.isNull()) {
+    ackCommand(cmdId, "SYNC_UIDS_NO_PAYLOAD");
+    lastAckedCmd = cmdId;
+    NVSStore::setLastCommandId(cmdId);
+    return;
+}
+
+JsonArray wl = payload["whitelist"];
+JsonArray bl = payload["blacklist"];
+
+if (wl.isNull() || bl.isNull()) {
+    ackCommand(cmdId, "SYNC_UIDS_BAD_PAYLOAD");
+    lastAckedCmd = cmdId;
+    NVSStore::setLastCommandId(cmdId);
+    return;
+}
+
 
         if (!wl.isNull() && !bl.isNull()) {
 
             NVSStore::clearWhitelist();
             NVSStore::clearBlacklist();
+            NVSStore::clearPending();   // <-- ADD THIS LINE HERE
+
 
             for (JsonVariant v : wl) {
                 NVSStore::addToWhitelist(v.as<const char*>());
@@ -199,131 +283,7 @@ void CommandProcessor::update() {
         }
 
         lastAckedCmd = cmdId;
-        return;
-    }
-
-    // -------- SYNC_LOGS: Send access logs to cloud (BATCHED) --------
-    if (strcmp(type, "SYNC_LOGS") == 0) {
-        Serial.println("[CMD] SYNC_LOGS received - batching logs");
-
-        // Build JSON array of all logs
-        String body = "[";
-        uint16_t count = 0;
-        bool first = true;
-
-        LogStore::forEach([&body, &count, &first, &deviceId](const LogEntry& entry) {
-            const char* eventType = nullptr;
-            
-            switch (entry.event) {
-                case LogEvent::ACCESS_GRANTED:
-                    eventType = "GRANTED";
-                    break;
-                case LogEvent::ACCESS_DENIED:
-                    eventType = "DENIED";
-                    break;
-                case LogEvent::UNKNOWN_CARD:
-                    eventType = "PENDING";
-                    break;
-                case LogEvent::REMOTE_UNLOCK:
-                    eventType = "REMOTE";
-                    break;
-                default:
-                    return;
-            }
-
-            if (!first) body += ",";
-            first = false;
-
-            body += "{\"device_id\":\"" + deviceId +
-                    "\",\"uid\":\"" + String(entry.uid) +
-                    "\",\"event_type\":\"" + String(eventType) + "\"}";
-            count++;
-        });
-
-        body += "]";
-
-        String result;
-        if (count == 0) {
-            result = "LOGS_SYNCED:0";
-            Serial.println("[CMD] No logs to sync");
-        } else {
-            Serial.printf("[CMD] Sending %d logs in one request...\n", count);
-
-            HTTPClient post;
-            String url = String(SUPABASE_URL) + "/rest/v1/access_logs";
-
-            post.begin(url);
-            post.addHeader("apikey", SUPABASE_KEY);
-            post.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-            post.addHeader("Content-Type", "application/json");
-            post.addHeader("Prefer", "return=minimal");
-
-            int code = post.POST(body);
-            post.end();
-
-            if (code == 201 || code == 200) {
-                result = "LOGS_SYNCED:" + String(count);
-                Serial.printf("[CMD] Batch insert OK - %d logs\n", count);
-            } else {
-                result = "LOGS_SYNC_FAILED:" + String(code);
-                Serial.printf("[CMD] Batch insert FAILED HTTP %d\n", code);
-            }
-        }
-        
-        if (ackCommand(cmdId, result)) {
-            lastAckedCmd = cmdId;
-        }
-        return;
-    }
-
-    // ---- UID REQUIRED BELOW ----
-    if (!uid || strlen(uid) == 0) {
-        LogStore::log(LogEvent::COMMAND_ERROR, "-", "missing_uid");
-        ackCommand(cmdId, "MISSING_UID");
-        lastAckedCmd = cmdId;
-        return;
-    }
-
-    if (strcmp(type, "WHITELIST_ADD") == 0) {
-
-        if (NVSStore::addToWhitelist(uid)) {
-            Serial.println("[CMD] Whitelisted UID: " + String(uid));
-            LogStore::log(LogEvent::UID_WHITELISTED, uid, "supabase");
-            ackCommand(cmdId, "WHITELIST_ADD_OK");
-        } else {
-            Serial.println("[CMD] Whitelist FAILED for UID: " + String(uid));
-            LogStore::log(LogEvent::COMMAND_ERROR, uid, "wl_failed");
-            ackCommand(cmdId, "WHITELIST_ADD_FAIL");
-        }
-
-        lastAckedCmd = cmdId;
-        return;
-    }
-
-    if (strcmp(type, "BLACKLIST_ADD") == 0) {
-
-        if (NVSStore::addToBlacklist(uid)) {
-            Serial.println("[CMD] Blacklisted UID: " + String(uid));
-            LogStore::log(LogEvent::UID_BLACKLISTED, uid, "supabase");
-            ackCommand(cmdId, "BLACKLIST_ADD_OK");
-        } else {
-            Serial.println("[CMD] Blacklist FAILED for UID: " + String(uid));
-            LogStore::log(LogEvent::COMMAND_ERROR, uid, "bl_failed");
-            ackCommand(cmdId, "BLACKLIST_ADD_FAIL");
-        }
-
-        lastAckedCmd = cmdId;
-        return;
-    }
-
-    if (strcmp(type, "REMOVE_UID") == 0) {
-
-        NVSStore::removeUID(uid);
-        Serial.println("[CMD] Removed UID: " + String(uid));
-        LogStore::log(LogEvent::UID_REMOVED, uid, "supabase");
-        ackCommand(cmdId, "REMOVE_UID_OK");
-
-        lastAckedCmd = cmdId;
+        NVSStore::setLastCommandId(cmdId);
         return;
     }
 
@@ -332,4 +292,5 @@ void CommandProcessor::update() {
     LogStore::log(LogEvent::COMMAND_ERROR, type, "unknown_cmd");
     ackCommand(cmdId, "UNKNOWN_COMMAND");
     lastAckedCmd = cmdId;
+    NVSStore::setLastCommandId(cmdId);
 }
