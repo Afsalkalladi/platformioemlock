@@ -12,7 +12,7 @@ static MFRC522 rfid(21, 22);   // SDA, RST
 // ================= INTERNAL STATE =================
 
 
-static const uint32_t RFID_COOLDOWN_MS = 1000;
+static const uint32_t RFID_COOLDOWN_MS = 1;
 
 // ================= PUBLIC FUNCTIONS =================
 
@@ -20,7 +20,7 @@ void RFIDManager::init(uint8_t ssPin, uint8_t rstPin) {
 
     SPI.begin(18, 19, 23, ssPin);   // SCK, MISO, MOSI, SS
     rfid.PCD_Init();
-
+    rfid.PCD_SetAntennaGain(rfid.RxGain_max);
     Serial.println("[RFID] MFRC522 initialized");
 }
 
@@ -30,31 +30,29 @@ void RFIDManager::init(uint8_t ssPin, uint8_t rstPin) {
 
 void RFIDManager::poll() {
 
-    if (!rfid.PICC_IsNewCardPresent()) return;
-    if (!rfid.PICC_ReadCardSerial()) return;
+    if (!rfid.PICC_IsNewCardPresent()) {
+        return;
+    }
+    Serial.println("[RFID] Card detected, reading serial...");
+    if (!rfid.PICC_ReadCardSerial()) {
+        Serial.println("[RFID] Failed to read card serial.");
+        return;
+    }
     static uint32_t lastReadMs = 0;
 
-if (millis() - lastReadMs < RFID_COOLDOWN_MS) {
-    rfid.PICC_HaltA();
-    rfid.PCD_StopCrypto1();
-    return;
-}
-lastReadMs = millis();
+    if (millis() - lastReadMs < RFID_COOLDOWN_MS) {
+        Serial.println("[RFID] Cooldown active, ignoring scan.");
+        rfid.PICC_HaltA();
+        rfid.PCD_StopCrypto1();
+        return;
+    }
+    lastReadMs = millis();
 
     
 
     uint8_t len = rfid.uid.size;
 
-    // Only allow 4 or 7 byte UIDs
-    if (!(len == 4 || len == 7)) {
-        Event evt{};
-        evt.type = EventType::RFID_INVALID;
-        EventQueue::send(evt);
-
-        rfid.PICC_HaltA();
-        rfid.PCD_StopCrypto1();
-        return;
-    }
+    // No UID length restriction; scan all cards regardless of UID length
 
     // Convert UID to hex string
     char uidStr[15] = {0}; // 7 bytes → 14 hex + null

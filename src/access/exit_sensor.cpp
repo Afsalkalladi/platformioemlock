@@ -9,7 +9,7 @@ static uint8_t exitPin;
 
 // Timing (LOCKED)
 static const uint32_t EXIT_DEBOUNCE_MS = 80;
-static const uint32_t EXIT_COOLDOWN_MS = 4000;
+static const uint32_t EXIT_COOLDOWN_MS = 1000;
 
 // ================= STATE =================
 

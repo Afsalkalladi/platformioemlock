@@ -7,7 +7,7 @@
 // ================= TIMING =================
 
 static const uint32_t UNLOCK_DURATION_MS = 5000;
-static const uint32_t UNLOCK_COOLDOWN_MS = 4000;
+static const uint32_t UNLOCK_COOLDOWN_MS = 1000;
 
 // ================= STATE =================
 
