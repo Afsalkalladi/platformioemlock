@@ -145,6 +145,11 @@ if (Serial.available()) {
     if (c == 'S' || c == 's') {
         LogSync::triggerSync();
     }
+    if (c == 'C' || c == 'c') {
+        Serial.println("[CMD] Clearing ALL logs from LittleFS...");
+        LogStore::clearAllLogs();
+        Serial.println("[CMD] All logs cleared!");
+    }
 }
 
 if (WiFiManager::getState() == WiFiState::READY) {

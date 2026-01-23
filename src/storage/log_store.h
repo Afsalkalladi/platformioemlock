@@ -23,6 +23,7 @@ struct LogEntry {
     LogEvent event;
     char uid[16];
     char info[32];
+    char timestampStr[24];  // Original timestamp string for syncing
 };
 
 class LogStore {
@@ -35,4 +36,5 @@ public:
 
     static void forEach(std::function<void(const LogEntry&)> callback);
     static void cleanupOldLogs();   // >30 days
+    static void clearAllLogs();     // Delete all log files after successful sync
 };

@@ -11,6 +11,7 @@ import {
   fetchPendingUIDs,
   fetchCommandHistory,
   fetchAccessLogs,
+  fetchUIDNames,
   sendRemoteUnlock,
   sendGetPending,
   sendSyncUIDs,
@@ -18,6 +19,7 @@ import {
   sendWhitelistAdd,
   sendBlacklistAdd,
   sendRemoveUID,
+  updateUIDName,
 } from '@/lib/api'
 import type { DeviceDetail, DeviceUID, PendingUID, Command, AccessLog } from '@/lib/types'
 
@@ -34,6 +36,7 @@ export default function DeviceDetailPage() {
   const [blacklist, setBlacklist] = useState<DeviceUID[]>([])
   const [commands, setCommands] = useState<Command[]>([])
   const [logs, setLogs] = useState<AccessLog[]>([])
+  const [uidNames, setUidNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -45,7 +48,7 @@ export default function DeviceDetailPage() {
 
   async function loadAll() {
     try {
-      const [detailData, pendingData, whitelistData, blacklistData, commandsData, logsData] =
+      const [detailData, pendingData, whitelistData, blacklistData, commandsData, logsData, namesData] =
         await Promise.all([
           fetchDeviceDetail(deviceId),
           fetchPendingUIDs(deviceId),
@@ -53,6 +56,7 @@ export default function DeviceDetailPage() {
           fetchBlacklistUIDs(deviceId),
           fetchCommandHistory(deviceId),
           fetchAccessLogs(deviceId),
+          fetchUIDNames(deviceId),
         ])
 
       setDetail(detailData)
@@ -61,6 +65,7 @@ export default function DeviceDetailPage() {
       setBlacklist(blacklistData)
       setCommands(commandsData)
       setLogs(logsData)
+      setUidNames(namesData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load device data')
@@ -99,9 +104,8 @@ export default function DeviceDetailPage() {
             </div>
             <div className="flex items-center gap-4">
               <span
-                className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  isOnline ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                }`}
+                className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${isOnline ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  }`}
               >
                 {isOnline ? '● Online' : '○ Offline'}
               </span>
@@ -161,10 +165,9 @@ export default function DeviceDetailPage() {
                 onClick={() => setActiveTab(tab)}
                 className={`
                   py-4 px-1 border-b-2 font-medium text-sm capitalize
-                  ${
-                    activeTab === tab
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ${activeTab === tab
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }
                 `}
               >
@@ -204,7 +207,7 @@ export default function DeviceDetailPage() {
               onAction={loadAll}
             />
           )}
-          {activeTab === 'logs' && <LogsTab logs={logs} />}
+          {activeTab === 'logs' && <LogsTab logs={logs} uidNames={uidNames} />}
           {activeTab === 'commands' && <CommandsTab commands={commands} />}
         </div>
       </div>
@@ -296,6 +299,19 @@ function UIDListTab({
   type: 'whitelist' | 'blacklist'
   onAction: () => void
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+
+  const handleSaveName = async (id: string) => {
+    try {
+      await updateUIDName(id, editName)
+      setEditingId(null)
+      onAction()
+    } catch (err) {
+      console.error('Failed to update name:', err)
+    }
+  }
+
   if (uids.length === 0) {
     return (
       <div className="p-8 text-center text-gray-500">
@@ -313,6 +329,9 @@ function UIDListTab({
               UID
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              Name
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
               Last Updated
             </th>
             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
@@ -325,6 +344,47 @@ function UIDListTab({
             <tr key={item.id}>
               <td className="px-6 py-4 whitespace-nowrap font-mono text-sm">
                 {item.uid}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                {editingId === item.id ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="border rounded px-2 py-1 text-sm w-32"
+                      placeholder="Enter name"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => handleSaveName(item.id)}
+                      className="text-green-600 hover:text-green-800 text-xs"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="text-gray-500 hover:text-gray-700 text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className={item.name ? 'text-blue-600 font-medium' : 'text-gray-400 italic'}>
+                      {item.name || 'No name'}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setEditingId(item.id)
+                        setEditName(item.name || '')
+                      }}
+                      className="text-gray-400 hover:text-gray-600 text-xs"
+                    >
+                      ✏️
+                    </button>
+                  </div>
+                )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                 {new Date(item.updated_at).toLocaleString()}
@@ -346,7 +406,7 @@ function UIDListTab({
   )
 }
 
-function LogsTab({ logs }: { logs: AccessLog[] }) {
+function LogsTab({ logs, uidNames }: { logs: AccessLog[]; uidNames: Record<string, string> }) {
   if (logs.length === 0) {
     return (
       <div className="p-8 text-center text-gray-500">
@@ -379,7 +439,7 @@ function LogsTab({ logs }: { logs: AccessLog[] }) {
               Time
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-              UID
+              UID / Name
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
               Event
@@ -392,14 +452,17 @@ function LogsTab({ logs }: { logs: AccessLog[] }) {
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                 {new Date(log.logged_at).toLocaleString()}
               </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                {log.uid}
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <span className="font-mono">{log.uid}</span>
+                {uidNames[log.uid] && (
+                  <span className="ml-2 text-blue-600 font-medium">
+                    ({uidNames[log.uid]})
+                  </span>
+                )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
                 <span
-                  className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    getEventColor(log.event_type)
-                  }`}
+                  className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getEventColor(log.event_type)}`}
                 >
                   {log.event_type}
                 </span>
@@ -457,13 +520,12 @@ function CommandsTab({ commands }: { commands: Command[] }) {
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
                 <span
-                  className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    cmd.status === 'DONE'
-                      ? 'bg-green-100 text-green-800'
-                      : cmd.status === 'FAILED'
+                  className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${cmd.status === 'DONE'
+                    ? 'bg-green-100 text-green-800'
+                    : cmd.status === 'FAILED'
                       ? 'bg-red-100 text-red-800'
                       : 'bg-yellow-100 text-yellow-800'
-                  }`}
+                    }`}
                 >
                   {cmd.status}
                 </span>

@@ -147,7 +147,7 @@ void CommandProcessor::update() {
         e.type = EventType::REMOTE_UNLOCK;
         EventQueue::send(e);
 
-        LogStore::log(LogEvent::REMOTE_UNLOCK, "-", "supabase");
+        // Note: Log is recorded by access_controller when event is handled
 
         if (ackCommand(cmdId, "REMOTE_UNLOCK_OK")) {
             lastAckedCmd = cmdId;
@@ -271,7 +271,7 @@ void CommandProcessor::update() {
         uint16_t count = 0;
         bool first = true;
 
-        LogStore::forEach([&body, &count, &first, &deviceId](const LogEntry& entry) {
+        LogStore::forEach([&body, &count, &first](const LogEntry& entry) {
             const char* eventType = nullptr;
             
             switch (entry.event) {
@@ -288,15 +288,27 @@ void CommandProcessor::update() {
                     eventType = "REMOTE";
                     break;
                 default:
-                    return;
+                    return;  // Skip unknown event types
             }
 
+            // Convert timestamp to ISO 8601 format (replace space with T)
+            String isoTimestamp = String(entry.timestampStr);
+            isoTimestamp.replace(" ", "T");
+            
+            // Skip entries with invalid 1970 timestamps (before NTP sync)
+            if (isoTimestamp.startsWith("1970") || isoTimestamp.length() < 10) {
+                return;  // Skip this entry - don't add anything
+            }
+
+            // Add comma AFTER we know the entry is valid
             if (!first) body += ",";
             first = false;
 
+            // Include actual scan timestamp (logged_at)
             body += "{\"device_id\":\"" + deviceId +
                     "\",\"uid\":\"" + String(entry.uid) +
-                    "\",\"event_type\":\"" + String(eventType) + "\"}";
+                    "\",\"event_type\":\"" + String(eventType) +
+                    "\",\"logged_at\":\"" + isoTimestamp + "\"}";
             count++;
         });
 
@@ -308,6 +320,8 @@ void CommandProcessor::update() {
             Serial.println("[CMD] No logs to sync");
         } else {
             Serial.printf("[CMD] Sending %d logs in one request...\n", count);
+            Serial.println("[CMD] Payload preview:");
+            Serial.println(body.substring(0, min((unsigned int)500, body.length())));
 
             HTTPClient post;
             String url = String(SUPABASE_URL) + "/rest/v1/access_logs";
@@ -319,14 +333,21 @@ void CommandProcessor::update() {
             post.addHeader("Prefer", "return=minimal");
 
             int code = post.POST(body);
+            String responseBody = post.getString();  // Capture response
             post.end();
 
             if (code == 201 || code == 200) {
                 result = "LOGS_SYNCED:" + String(count);
                 Serial.printf("[CMD] Batch insert OK - %d logs\n", count);
+                
+                // Clear local logs after successful sync
+                LogStore::clearAllLogs();
+                Serial.println("[CMD] Local logs cleared after sync");
             } else {
                 result = "LOGS_SYNC_FAILED:" + String(code);
                 Serial.printf("[CMD] Batch insert FAILED HTTP %d\n", code);
+                Serial.println("[CMD] Error response:");
+                Serial.println(responseBody);
             }
         }
         

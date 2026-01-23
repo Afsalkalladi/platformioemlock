@@ -27,6 +27,7 @@ export interface DeviceUID {
   id: string
   device_id: string
   uid: string
+  name: string | null  // Human-readable name for the UID
   state: UIDState
   updated_at: string
 }

@@ -91,16 +91,33 @@ void LogStore::cleanupOldLogs() {
 
     File f = root.openNextFile();
     while (f) {
-        String name = f.name(); // /log_YYYYMMDD.txt
-        if (name.startsWith("/log_")) {
-            String date = name.substring(5, 13);
+        String name = f.name(); // /log_YYYYMMDD.txt or log_YYYYMMDD.txt
+        
+        // Handle both with and without leading slash
+        String logPrefix = name.startsWith("/") ? "/log_" : "log_";
+        
+        if (name.startsWith(logPrefix)) {
+            String date = name.substring(logPrefix.length(), logPrefix.length() + 8);
+            
+            // Delete 1970 logs (created before NTP sync)
+            if (date.startsWith("1970")) {
+                Serial.printf("[LOG] Deleting invalid 1970 log: %s\n", name.c_str());
+                f.close();
+                LittleFS.remove(name.startsWith("/") ? name : "/" + name);
+                f = root.openNextFile();
+                continue;
+            }
+            
             struct tm t = {};
             strptime(date.c_str(), "%Y%m%d", &t);
             time_t fileTime = mktime(&t);
 
             double days = difftime(now, fileTime) / 86400.0;
             if (days > MAX_DAYS_LOCAL) {
-                LittleFS.remove(name);
+                f.close();
+                LittleFS.remove(name.startsWith("/") ? name : "/" + name);
+                f = root.openNextFile();
+                continue;
             }
         }
         f = root.openNextFile();
@@ -152,6 +169,10 @@ void LogStore::forEach(std::function<void(const LogEntry&)> callback) {
                 LogEntry entry = {};
                 entry.timestamp = 0;
                 
+                // Store the timestamp string for syncing
+                strncpy(entry.timestampStr, timestamp.c_str(), sizeof(entry.timestampStr) - 1);
+                entry.timestampStr[sizeof(entry.timestampStr) - 1] = '\0';
+                
                 // Map event string to enum (support both old and new names)
                 if (eventStr == "ACCESS_GRANTED" || eventStr == "RFID_GRANTED") 
                     entry.event = LogEvent::ACCESS_GRANTED;
@@ -173,4 +194,47 @@ void LogStore::forEach(std::function<void(const LogEntry&)> callback) {
         file = root.openNextFile();
     }
     Serial.println("[LOG] Done scanning");
+}
+
+void LogStore::clearAllLogs() {
+    File root = LittleFS.open("/");
+    if (!root) {
+        Serial.println("[LOG] Failed to open root for clearing");
+        return;
+    }
+
+    Serial.println("[LOG] Clearing all log files...");
+    
+    // Collect files to delete first (can't delete while iterating)
+    String filesToDelete[32];
+    int fileCount = 0;
+
+    File file = root.openNextFile();
+    while (file && fileCount < 32) {
+        String name = String(file.name());
+        
+        // Check for log files
+        if (name.startsWith("log_") || name.startsWith("/log_")) {
+            // Store full path
+            if (name.startsWith("/")) {
+                filesToDelete[fileCount++] = name;
+            } else {
+                filesToDelete[fileCount++] = "/" + name;
+            }
+        }
+        file.close();
+        file = root.openNextFile();
+    }
+    root.close();
+
+    // Now delete all collected files
+    for (int i = 0; i < fileCount; i++) {
+        if (LittleFS.remove(filesToDelete[i])) {
+            Serial.printf("[LOG] Deleted: %s\n", filesToDelete[i].c_str());
+        } else {
+            Serial.printf("[LOG] Failed to delete: %s\n", filesToDelete[i].c_str());
+        }
+    }
+
+    Serial.printf("[LOG] Cleared %d log files\n", fileCount);
 }

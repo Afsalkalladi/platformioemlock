@@ -7,7 +7,7 @@ export async function fetchDevices(): Promise<DeviceSummary[]> {
     .from('device_overview')
     .select('*')
     .order('device_id', { ascending: true })
-  
+
   if (error) throw error
   return data as DeviceSummary[]
 }
@@ -18,14 +18,14 @@ export async function fetchDeviceDetail(deviceId: string): Promise<DeviceDetail 
     .from('device_commands')
     .select('status, created_at')
     .eq('device_id', deviceId)
-  
+
   if (error) throw error
   if (!data || data.length === 0) return null
-  
+
   const pending = data.filter(c => c.status === 'PENDING').length
   const completed = data.filter(c => c.status === 'DONE').length
   const lastSeen = data[0].created_at
-  
+
   return {
     device_id: deviceId,
     pending_commands: pending,
@@ -42,7 +42,7 @@ export async function fetchWhitelistUIDs(deviceId: string): Promise<DeviceUID[]>
     .eq('device_id', deviceId)
     .eq('state', 'WHITELIST')
     .order('updated_at', { ascending: false })
-  
+
   if (error) throw error
   return data as DeviceUID[]
 }
@@ -55,7 +55,7 @@ export async function fetchBlacklistUIDs(deviceId: string): Promise<DeviceUID[]>
     .eq('device_id', deviceId)
     .eq('state', 'BLACKLIST')
     .order('updated_at', { ascending: false })
-  
+
   if (error) throw error
   return data as DeviceUID[]
 }
@@ -73,14 +73,14 @@ export async function fetchPendingUIDs(deviceId: string): Promise<PendingUID[]> 
     .order('acked_at', { ascending: false })
     .limit(1)
     .single()
-  
+
   if (error) {
     if (error.code === 'PGRST116') return [] // No results
     throw error
   }
-  
+
   if (!data || !data.result) return []
-  
+
   try {
     const uids = JSON.parse(data.result)
     // Convert array of UIDs to array of objects with reported_at
@@ -102,7 +102,7 @@ export async function fetchCommandHistory(deviceId: string, limit = 50): Promise
     .eq('device_id', deviceId)
     .order('created_at', { ascending: false })
     .limit(limit)
-  
+
   if (error) throw error
   return data as Command[]
 }
@@ -114,7 +114,7 @@ export async function fetchCommandStatus(commandId: string): Promise<Command | n
     .select('*')
     .eq('id', commandId)
     .single()
-  
+
   if (error) throw error
   return data as Command
 }
@@ -126,7 +126,7 @@ async function ensureDeviceExists(deviceId: string): Promise<void> {
     .insert({ device_id: deviceId })
     .select()
     .single()
-  
+
   // Ignore duplicate key errors (device already exists)
   if (error && !error.message.includes('duplicate')) {
     throw error
@@ -142,22 +142,22 @@ export async function sendCommand(
 ): Promise<Command> {
   // Ensure device exists first (required by foreign key)
   await ensureDeviceExists(deviceId)
-  
+
   const insertData: any = {
     device_id: deviceId,
     type,
     status: 'PENDING',
   }
-  
+
   if (uid) insertData.uid = uid
   if (payload) insertData.payload = payload
-  
+
   const { data, error } = await supabase
     .from('device_commands')
     .insert(insertData)
     .select()
     .single()
-  
+
   if (error) throw error
   return data as Command
 }
@@ -212,11 +212,40 @@ export async function fetchAccessLogs(deviceId: string, limit = 100): Promise<Ac
     .eq('device_id', deviceId)
     .order('logged_at', { ascending: false })
     .limit(limit)
-  
+
   if (error) {
     // If table doesn't exist yet, return empty array
     if (error.code === '42P01') return []
     throw error
   }
   return data as AccessLog[]
+}
+
+// Query #15: Update UID name
+export async function updateUIDName(uidId: string, name: string): Promise<void> {
+  const { error } = await supabase
+    .from('device_uids')
+    .update({ name: name || null })
+    .eq('id', uidId)
+
+  if (error) throw error
+}
+
+// Query #16: Get UID name mapping for a device
+export async function fetchUIDNames(deviceId: string): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from('device_uids')
+    .select('uid, name')
+    .eq('device_id', deviceId)
+    .not('name', 'is', null)
+
+  if (error) throw error
+
+  const mapping: Record<string, string> = {}
+  if (data) {
+    data.forEach((item: { uid: string; name: string | null }) => {
+      if (item.name) mapping[item.uid] = item.name
+    })
+  }
+  return mapping
 }
