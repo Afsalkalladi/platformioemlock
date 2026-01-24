@@ -566,9 +566,15 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
   }
 
   const formatBytes = (bytes: number) => {
+    if (!bytes && bytes !== 0) return 'N/A'
     if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     if (bytes > 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${bytes} B`
+  }
+
+  const formatPercent = (value: number | null) => {
+    if (value === null) return 'N/A'
+    return `${value.toFixed(1)}%`
   }
 
   const getRfidVersionName = (version: number) => {
@@ -584,94 +590,414 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
     }
   }
 
+  const getChipModelName = (model: number | null) => {
+    if (model === null) return 'N/A'
+    switch (model) {
+      case 0: return 'ESP32'
+      case 2: return 'ESP32-S2'
+      case 9: return 'ESP32-C3'
+      case 5: return 'ESP32-S3'
+      default: return `Model ${model}`
+    }
+  }
+
   const lastUpdate = new Date(health.updated_at)
-  const isStale = Date.now() - lastUpdate.getTime() > 120000 // More than 2 minutes old
+  const isStale = Date.now() - lastUpdate.getTime() > 120000
+
+  const heapUsed = health.total_heap_bytes && health.free_heap_bytes 
+    ? health.total_heap_bytes - health.free_heap_bytes 
+    : null
+  const heapUsagePercent = health.total_heap_bytes && heapUsed
+    ? (heapUsed / health.total_heap_bytes) * 100
+    : null
+
+  const littlefsUsagePercent = health.storage_littlefs_total_bytes && health.storage_littlefs_used_bytes
+    ? (health.storage_littlefs_used_bytes / health.storage_littlefs_total_bytes) * 100
+    : null
 
   return (
-    <div className="p-6">
+    <div className="p-6 space-y-6">
       {/* Status Banner */}
       {isStale && (
-        <div className="mb-4 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded">
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded">
           ⚠️ Health data is stale (last update: {lastUpdate.toLocaleString()})
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* System Status */}
-        <div className="bg-gray-50 rounded-lg p-4">
-          <h3 className="text-lg font-semibold mb-3 text-gray-700">System Status</h3>
-          <div className="space-y-2 text-sm">
+      {/* System Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Processor Info */}
+        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+          <h3 className="text-sm font-semibold mb-2 text-blue-800">Processor</h3>
+          <div className="space-y-1 text-xs">
             <div className="flex justify-between">
-              <span className="text-gray-600">Uptime:</span>
-              <span className="font-medium">{formatUptime(health.uptime_seconds)}</span>
+              <span className="text-blue-600">Model:</span>
+              <span className="font-medium">{getChipModelName(health.chip_model)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Free Memory:</span>
+              <span className="text-blue-600">Cores:</span>
+              <span className="font-medium">{health.chip_cores ?? 'N/A'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-blue-600">Freq:</span>
+              <span className="font-medium">{health.cpu_freq_mhz ?? 'N/A'} MHz</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-blue-600">Revision:</span>
+              <span className="font-medium">{health.chip_revision ?? 'N/A'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Memory Info */}
+        <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+          <h3 className="text-sm font-semibold mb-2 text-green-800">Memory (RAM)</h3>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-green-600">Total:</span>
+              <span className="font-medium">{formatBytes(health.total_heap_bytes)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-green-600">Free:</span>
               <span className="font-medium">{formatBytes(health.free_heap_bytes)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Last Update:</span>
-              <span className="font-medium">{lastUpdate.toLocaleTimeString()}</span>
+              <span className="text-green-600">Used:</span>
+              <span className="font-medium">{formatBytes(heapUsed)}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-green-600">Usage:</span>
+              <span className="font-medium">{formatPercent(heapUsagePercent)}</span>
+            </div>
+            {health.min_free_heap_bytes && (
+              <div className="flex justify-between">
+                <span className="text-green-600">Min Free:</span>
+                <span className="font-medium">{formatBytes(health.min_free_heap_bytes)}</span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* WiFi Status */}
-        <div className="bg-gray-50 rounded-lg p-4">
-          <h3 className="text-lg font-semibold mb-3 text-gray-700">WiFi Status</h3>
-          <div className="space-y-2 text-sm">
+        <div className={`rounded-lg p-4 border ${health.wifi_connected ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <h3 className={`text-sm font-semibold mb-2 ${health.wifi_connected ? 'text-green-800' : 'text-red-800'}`}>WiFi</h3>
+          <div className="space-y-1 text-xs">
             <div className="flex justify-between">
-              <span className="text-gray-600">Connected:</span>
-              <span className={`font-medium ${health.wifi_connected ? 'text-green-600' : 'text-red-600'}`}>
-                {health.wifi_connected ? '✓ Yes' : '✗ No'}
+              <span className={health.wifi_connected ? 'text-green-600' : 'text-red-600'}>Status:</span>
+              <span className={`font-medium ${health.wifi_connected ? 'text-green-700' : 'text-red-700'}`}>
+                {health.wifi_connected ? '✓ Connected' : '✗ Disconnected'}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Signal:</span>
+              <span className={health.wifi_connected ? 'text-green-600' : 'text-red-600'}>Signal:</span>
               <span className="font-medium">{health.wifi_rssi} dBm</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">NTP Synced:</span>
-              <span className={`font-medium ${health.ntp_synced ? 'text-green-600' : 'text-yellow-600'}`}>
-                {health.ntp_synced ? '✓ Yes' : '⏳ No'}
+              <span className={health.wifi_connected ? 'text-green-600' : 'text-red-600'}>NTP:</span>
+              <span className={`font-medium ${health.ntp_synced ? 'text-green-700' : 'text-yellow-600'}`}>
+                {health.ntp_synced ? '✓ Synced' : '⏳ No'}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Disconnects:</span>
-              <span className={`font-medium ${health.wifi_disconnect_count > 0 ? 'text-yellow-600' : ''}`}>
-                {health.wifi_disconnect_count}
-              </span>
+              <span className={health.wifi_connected ? 'text-green-600' : 'text-red-600'}>Disconnects:</span>
+              <span className="font-medium">{health.wifi_disconnect_count}</span>
             </div>
           </div>
         </div>
 
-        {/* RFID Reader Status */}
-        <div className={`rounded-lg p-4 ${health.rfid_healthy ? 'bg-gray-50' : 'bg-red-50 border border-red-200'}`}>
-          <h3 className="text-lg font-semibold mb-3 text-gray-700">RFID Reader</h3>
-          <div className="space-y-2 text-sm">
+        {/* RFID Status */}
+        <div className={`rounded-lg p-4 border ${health.rfid_healthy ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <h3 className={`text-sm font-semibold mb-2 ${health.rfid_healthy ? 'text-green-800' : 'text-red-800'}`}>RFID Reader</h3>
+          <div className="space-y-1 text-xs">
             <div className="flex justify-between">
-              <span className="text-gray-600">Status:</span>
-              <span className={`font-medium ${health.rfid_healthy ? 'text-green-600' : 'text-red-600'}`}>
+              <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Status:</span>
+              <span className={`font-medium ${health.rfid_healthy ? 'text-green-700' : 'text-red-700'}`}>
                 {health.rfid_healthy ? '✓ Healthy' : '✗ Error'}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Reader Type:</span>
-              <span className="font-medium">{getRfidVersionName(health.rfid_version)}</span>
+              <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Type:</span>
+              <span className="font-medium text-xs">{getRfidVersionName(health.rfid_version)}</span>
+            </div>
+            {health.rfid_communication_ok !== null && (
+              <div className="flex justify-between">
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Communication:</span>
+                <span className={`font-medium ${health.rfid_communication_ok ? 'text-green-700' : 'text-red-700'}`}>
+                  {health.rfid_communication_ok ? '✓ OK' : '✗ Failed'}
+                </span>
+              </div>
+            )}
+            {health.rfid_antenna_on !== null && (
+              <div className="flex justify-between">
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Antenna:</span>
+                <span className={`font-medium ${health.rfid_antenna_on ? 'text-green-700' : 'text-red-700'}`}>
+                  {health.rfid_antenna_on ? '✓ ON' : '✗ OFF'}
+                </span>
+              </div>
+            )}
+            {health.rfid_antenna_gain !== null && (
+              <div className="flex justify-between">
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Gain:</span>
+                <span className="font-medium">0x{health.rfid_antenna_gain.toString(16).toUpperCase().padStart(2, '0')}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Reinits:</span>
+              <span className="font-medium">{health.rfid_reinit_count}</span>
+            </div>
+            {health.rfid_soft_reset_count !== null && (
+              <div className="flex justify-between">
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Soft Resets:</span>
+                <span className="font-medium">{health.rfid_soft_reset_count}</span>
+              </div>
+            )}
+            {health.rfid_poll_count !== null && (
+              <div className="flex justify-between">
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Polls:</span>
+                <span className="font-medium">{health.rfid_poll_count.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Core Status */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Core 0 */}
+        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">Core 0 Status</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">State:</span>
+              <span className={`font-medium ${health.core0_is_idle ? 'text-blue-600' : 'text-green-600'}`}>
+                {health.core0_is_idle ? '🟦 Idle' : '🟢 Active'}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Reinit Count:</span>
-              <span className={`font-medium ${health.rfid_reinit_count > 0 ? 'text-yellow-600' : ''}`}>
-                {health.rfid_reinit_count}
+              <span className="text-gray-600">Current Task:</span>
+              <span className="font-mono text-xs font-medium">{health.core0_current_task || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Free Stack:</span>
+              <span className="font-medium">{formatBytes(health.core0_free_stack_bytes)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">CPU Usage:</span>
+              <span className="font-medium">{formatPercent(health.core0_cpu_usage_percent)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Core 1 */}
+        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">Core 1 Status</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">State:</span>
+              <span className={`font-medium ${health.core1_is_idle ? 'text-blue-600' : 'text-green-600'}`}>
+                {health.core1_is_idle ? '🟦 Idle' : '🟢 Active'}
               </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Current Task:</span>
+              <span className="font-mono text-xs font-medium">{health.core1_current_task || 'N/A'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Free Stack:</span>
+              <span className="font-medium">{formatBytes(health.core1_free_stack_bytes)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">CPU Usage:</span>
+              <span className="font-medium">{formatPercent(health.core1_cpu_usage_percent)}</span>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Storage Information */}
+      <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+        <h3 className="text-lg font-semibold mb-3 text-purple-800">Storage Information</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* LittleFS */}
+          <div>
+            <h4 className="text-sm font-semibold mb-2 text-purple-700">LittleFS (Log Storage)</h4>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-purple-600">Total:</span>
+                <span className="font-medium">{formatBytes(health.storage_littlefs_total_bytes)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-purple-600">Used:</span>
+                <span className="font-medium">{formatBytes(health.storage_littlefs_used_bytes)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-purple-600">Free:</span>
+                <span className="font-medium">{formatBytes(health.storage_littlefs_free_bytes)}</span>
+              </div>
+              {littlefsUsagePercent !== null && (
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span>Usage</span>
+                    <span>{littlefsUsagePercent.toFixed(1)}%</span>
+                  </div>
+                  <div className="w-full bg-purple-200 rounded-full h-2">
+                    <div 
+                      className="bg-purple-600 h-2 rounded-full" 
+                      style={{ width: `${Math.min(littlefsUsagePercent, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* NVS */}
+          <div>
+            <h4 className="text-sm font-semibold mb-2 text-purple-700">NVS (UID Storage)</h4>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-purple-600">Used Entries:</span>
+                <span className="font-medium">{health.storage_nvs_used_entries ?? 'N/A'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Watchdog Information */}
+      {health.watchdog_enabled !== null && (
+        <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+          <h3 className="text-lg font-semibold mb-3 text-orange-800">Watchdog</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-orange-600">Enabled:</span>
+              <span className={`font-medium ${health.watchdog_enabled ? 'text-green-600' : 'text-gray-600'}`}>
+                {health.watchdog_enabled ? '✓ Yes' : '✗ No'}
+              </span>
+            </div>
+            {health.watchdog_timeout_ms && (
+              <div className="flex justify-between">
+                <span className="text-orange-600">Timeout:</span>
+                <span className="font-medium">{(health.watchdog_timeout_ms / 1000).toFixed(1)}s</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Task List */}
+      {health.tasks && health.tasks.length > 0 && (
+        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">
+            Active Tasks ({health.task_count ?? health.tasks.length})
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 px-3">Task Name</th>
+                  <th className="text-left py-2 px-3">Core</th>
+                  <th className="text-left py-2 px-3">Priority</th>
+                  <th className="text-left py-2 px-3">Stack High Water</th>
+                  <th className="text-left py-2 px-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {health.tasks.map((task, idx) => (
+                  <tr key={idx} className="border-b">
+                    <td className="py-2 px-3 font-mono text-xs">{task.name}</td>
+                    <td className="py-2 px-3">{task.core}</td>
+                    <td className="py-2 px-3">{task.priority}</td>
+                    <td className="py-2 px-3">{formatBytes(task.stack_high_water)}</td>
+                    <td className="py-2 px-3">
+                      <span className={`px-2 py-1 rounded text-xs ${task.is_running ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {task.is_running ? 'Running' : 'Blocked'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Comprehensive RFID Health Details */}
+      {(health.rfid_communication_ok !== null || health.rfid_tx_control !== null || 
+        health.rfid_status1 !== null || health.rfid_status2 !== null) && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-3 text-indigo-800">RFID Detailed Health</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            {health.rfid_communication_ok !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">Communication:</span>
+                <span className={`font-medium ${health.rfid_communication_ok ? 'text-green-600' : 'text-red-600'}`}>
+                  {health.rfid_communication_ok ? '✓ OK' : '✗ Failed'}
+                </span>
+              </div>
+            )}
+            {health.rfid_antenna_on !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">Antenna Power:</span>
+                <span className={`font-medium ${health.rfid_antenna_on ? 'text-green-600' : 'text-red-600'}`}>
+                  {health.rfid_antenna_on ? '✓ ON' : '✗ OFF'}
+                </span>
+              </div>
+            )}
+            {health.rfid_antenna_gain !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">Antenna Gain:</span>
+                <span className="font-medium font-mono">
+                  0x{health.rfid_antenna_gain.toString(16).toUpperCase().padStart(2, '0')} 
+                  ({health.rfid_antenna_gain === 0x70 ? 'Max' : 'Custom'})
+                </span>
+              </div>
+            )}
+            {health.rfid_tx_control !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">TX Control:</span>
+                <span className="font-medium font-mono">
+                  0x{health.rfid_tx_control.toString(16).toUpperCase().padStart(2, '0')}
+                </span>
+              </div>
+            )}
+            {health.rfid_status1 !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">Status Register 1:</span>
+                <span className="font-medium font-mono">
+                  0x{health.rfid_status1.toString(16).toUpperCase().padStart(2, '0')}
+                </span>
+              </div>
+            )}
+            {health.rfid_status2 !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">Status Register 2:</span>
+                <span className="font-medium font-mono">
+                  0x{health.rfid_status2.toString(16).toUpperCase().padStart(2, '0')}
+                </span>
+              </div>
+            )}
+            {health.rfid_com_irq !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">COM IRQ:</span>
+                <span className="font-medium font-mono">
+                  0x{health.rfid_com_irq.toString(16).toUpperCase().padStart(2, '0')}
+                </span>
+              </div>
+            )}
+            {health.rfid_poll_count !== null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">Total Polls:</span>
+                <span className="font-medium">{health.rfid_poll_count.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* RFID Error Details (if any) */}
       {health.last_rfid_error && (
-        <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <h3 className="text-lg font-semibold mb-2 text-red-800">Last RFID Error</h3>
           <div className="text-sm">
             <p className="text-red-700 font-medium">{health.last_rfid_error}</p>
@@ -683,6 +1009,30 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
           </div>
         </div>
       )}
+
+      {/* Last Successful Read */}
+      {health.last_successful_read_time && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-2 text-green-800">Last Successful RFID Read</h3>
+          <p className="text-green-700 text-sm">
+            {new Date(health.last_successful_read_time).toLocaleString()}
+          </p>
+        </div>
+      )}
+
+      {/* System Uptime */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h3 className="text-lg font-semibold text-blue-800">System Uptime</h3>
+            <p className="text-blue-700 text-sm mt-1">{formatUptime(health.uptime_seconds)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-blue-600">Last Updated</p>
+            <p className="text-sm font-medium text-blue-700">{lastUpdate.toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
