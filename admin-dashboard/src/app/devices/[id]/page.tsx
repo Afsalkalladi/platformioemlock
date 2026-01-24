@@ -12,6 +12,7 @@ import {
   fetchCommandHistory,
   fetchAccessLogs,
   fetchUIDNames,
+  fetchDeviceHealth,
   sendRemoteUnlock,
   sendGetPending,
   sendSyncUIDs,
@@ -21,9 +22,10 @@ import {
   sendRemoveUID,
   updateUIDName,
 } from '@/lib/api'
-import type { DeviceDetail, DeviceUID, PendingUID, Command, AccessLog } from '@/lib/types'
+import type { DeviceDetail, DeviceUID, PendingUID, Command, AccessLog, DeviceHealth } from '@/lib/types'
 
-type Tab = 'pending' | 'whitelist' | 'blacklist' | 'commands' | 'logs'
+
+type Tab = 'pending' | 'whitelist' | 'blacklist' | 'commands' | 'logs' | 'health'
 
 export default function DeviceDetailPage() {
   const params = useParams()
@@ -36,6 +38,7 @@ export default function DeviceDetailPage() {
   const [blacklist, setBlacklist] = useState<DeviceUID[]>([])
   const [commands, setCommands] = useState<Command[]>([])
   const [logs, setLogs] = useState<AccessLog[]>([])
+  const [health, setHealth] = useState<DeviceHealth | null>(null)
   const [uidNames, setUidNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +51,7 @@ export default function DeviceDetailPage() {
 
   async function loadAll() {
     try {
-      const [detailData, pendingData, whitelistData, blacklistData, commandsData, logsData, namesData] =
+      const [detailData, pendingData, whitelistData, blacklistData, commandsData, logsData, namesData, healthData] =
         await Promise.all([
           fetchDeviceDetail(deviceId),
           fetchPendingUIDs(deviceId),
@@ -57,6 +60,7 @@ export default function DeviceDetailPage() {
           fetchCommandHistory(deviceId),
           fetchAccessLogs(deviceId),
           fetchUIDNames(deviceId),
+          fetchDeviceHealth(deviceId),
         ])
 
       setDetail(detailData)
@@ -65,6 +69,7 @@ export default function DeviceDetailPage() {
       setBlacklist(blacklistData)
       setCommands(commandsData)
       setLogs(logsData)
+      setHealth(healthData)
       setUidNames(namesData)
       setError(null)
     } catch (err) {
@@ -159,7 +164,7 @@ export default function DeviceDetailPage() {
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav className="-mb-px flex space-x-8">
-            {(['pending', 'whitelist', 'blacklist', 'logs', 'commands'] as Tab[]).map((tab) => (
+            {(['pending', 'whitelist', 'blacklist', 'logs', 'commands', 'health'] as Tab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -209,6 +214,7 @@ export default function DeviceDetailPage() {
           )}
           {activeTab === 'logs' && <LogsTab logs={logs} uidNames={uidNames} />}
           {activeTab === 'commands' && <CommandsTab commands={commands} />}
+          {activeTab === 'health' && <HealthTab health={health} />}
         </div>
       </div>
     </div>
@@ -537,6 +543,146 @@ function CommandsTab({ commands }: { commands: Command[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function HealthTab({ health }: { health: DeviceHealth | null }) {
+  if (!health) {
+    return (
+      <div className="p-8 text-center text-gray-500">
+        No health data yet. Health data will appear once the device starts reporting.
+      </div>
+    )
+  }
+
+  const formatUptime = (seconds: number) => {
+    const days = Math.floor(seconds / 86400)
+    const hours = Math.floor((seconds % 86400) / 3600)
+    const mins = Math.floor((seconds % 3600) / 60)
+    if (days > 0) return `${days}d ${hours}h ${mins}m`
+    if (hours > 0) return `${hours}h ${mins}m`
+    return `${mins}m`
+  }
+
+  const formatBytes = (bytes: number) => {
+    if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    if (bytes > 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${bytes} B`
+  }
+
+  const getRfidVersionName = (version: number) => {
+    switch (version) {
+      case 0x91: return 'MFRC522 v1.0'
+      case 0x92: return 'MFRC522 v2.0'
+      case 0x82: return 'FM17522'
+      case 0x88: return 'FM17522E'
+      case 0x12: return 'Clone/Compatible'
+      case 0x00: return 'No Communication'
+      case 0xFF: return 'No Communication'
+      default: return `Unknown (0x${version.toString(16).toUpperCase()})`
+    }
+  }
+
+  const lastUpdate = new Date(health.updated_at)
+  const isStale = Date.now() - lastUpdate.getTime() > 120000 // More than 2 minutes old
+
+  return (
+    <div className="p-6">
+      {/* Status Banner */}
+      {isStale && (
+        <div className="mb-4 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded">
+          ⚠️ Health data is stale (last update: {lastUpdate.toLocaleString()})
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* System Status */}
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">System Status</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Uptime:</span>
+              <span className="font-medium">{formatUptime(health.uptime_seconds)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Free Memory:</span>
+              <span className="font-medium">{formatBytes(health.free_heap_bytes)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Last Update:</span>
+              <span className="font-medium">{lastUpdate.toLocaleTimeString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* WiFi Status */}
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">WiFi Status</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Connected:</span>
+              <span className={`font-medium ${health.wifi_connected ? 'text-green-600' : 'text-red-600'}`}>
+                {health.wifi_connected ? '✓ Yes' : '✗ No'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Signal:</span>
+              <span className="font-medium">{health.wifi_rssi} dBm</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">NTP Synced:</span>
+              <span className={`font-medium ${health.ntp_synced ? 'text-green-600' : 'text-yellow-600'}`}>
+                {health.ntp_synced ? '✓ Yes' : '⏳ No'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Disconnects:</span>
+              <span className={`font-medium ${health.wifi_disconnect_count > 0 ? 'text-yellow-600' : ''}`}>
+                {health.wifi_disconnect_count}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* RFID Reader Status */}
+        <div className={`rounded-lg p-4 ${health.rfid_healthy ? 'bg-gray-50' : 'bg-red-50 border border-red-200'}`}>
+          <h3 className="text-lg font-semibold mb-3 text-gray-700">RFID Reader</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Status:</span>
+              <span className={`font-medium ${health.rfid_healthy ? 'text-green-600' : 'text-red-600'}`}>
+                {health.rfid_healthy ? '✓ Healthy' : '✗ Error'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Reader Type:</span>
+              <span className="font-medium">{getRfidVersionName(health.rfid_version)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Reinit Count:</span>
+              <span className={`font-medium ${health.rfid_reinit_count > 0 ? 'text-yellow-600' : ''}`}>
+                {health.rfid_reinit_count}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* RFID Error Details (if any) */}
+      {health.last_rfid_error && (
+        <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-2 text-red-800">Last RFID Error</h3>
+          <div className="text-sm">
+            <p className="text-red-700 font-medium">{health.last_rfid_error}</p>
+            {health.last_rfid_error_time && (
+              <p className="text-red-600 mt-1">
+                Occurred at: {new Date(health.last_rfid_error_time).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

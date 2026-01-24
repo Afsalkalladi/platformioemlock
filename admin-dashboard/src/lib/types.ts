@@ -57,3 +57,19 @@ export interface AccessLog {
   event_type: 'GRANTED' | 'DENIED' | 'PENDING' | 'REMOTE'
   logged_at: string
 }
+
+export interface DeviceHealth {
+  device_id: string
+  uptime_seconds: number
+  free_heap_bytes: number
+  wifi_rssi: number
+  wifi_connected: boolean
+  ntp_synced: boolean
+  wifi_disconnect_count: number
+  rfid_healthy: boolean
+  rfid_version: number
+  rfid_reinit_count: number
+  last_rfid_error: string | null
+  last_rfid_error_time: string | null
+  updated_at: string
+}

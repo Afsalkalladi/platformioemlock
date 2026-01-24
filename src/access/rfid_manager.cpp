@@ -12,7 +12,7 @@
 static MFRC522 rfid(21, 22);   // SDA, RST
 
 // ================= INTERNAL STATE =================
-static const uint32_t RFID_COOLDOWN_MS = 1;
+static const uint32_t RFID_COOLDOWN_MS = 500;  // Prevent rapid re-reads
 
 // Health monitoring state
 static uint32_t lastSuccessfulReadMs = 0;
@@ -54,16 +54,24 @@ static void reinitReader() {
     
     // Full reinitialization sequence
     rfid.PCD_Reset();
-    delay(50);
+    delay(100);  // Longer delay for reset to complete
     rfid.PCD_Init();
+    delay(10);   // Allow init to stabilize
     rfid.PCD_SetAntennaGain(rfid.RxGain_max);
+    rfid.PCD_AntennaOn();  // Ensure antenna is on
     
     // Reset timing counters
     lastSuccessfulReadMs = millis();
     lastHealthCheckMs = millis();
     lastAntennaCycleMs = millis();
     
-    Serial.println("[RFID] Reinit complete");
+    // Verify reinit worked
+    byte version = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+    if (version == 0x00 || version == 0xFF) {
+        Serial.println("[RFID] WARNING: Reinit failed - still no communication");
+    } else {
+        Serial.printf("[RFID] Reinit complete (version: 0x%02X)\n", version);
+    }
 }
 
 static void cycleAntenna() {
@@ -76,8 +84,11 @@ static void cycleAntenna() {
 // ================= PUBLIC FUNCTIONS =================
 
 void RFIDManager::init(uint8_t ssPin, uint8_t rstPin) {
+    Serial.println("[RFID] Initializing MFRC522...");
+    
     SPI.begin(18, 19, 23, ssPin);   // SCK, MISO, MOSI, SS
     rfid.PCD_Init();
+    delay(10);  // Allow chip to stabilize
     rfid.PCD_SetAntennaGain(rfid.RxGain_max);
     
     // Initialize timing state
@@ -86,7 +97,32 @@ void RFIDManager::init(uint8_t ssPin, uint8_t rstPin) {
     lastAntennaCycleMs = millis();
     pollCount = 0;
     
-    Serial.println("[RFID] MFRC522 initialized");
+    // Read and display diagnostics
+    byte version = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+    byte gain = rfid.PCD_ReadRegister(MFRC522::RFCfgReg) & 0x70;
+    byte txControl = rfid.PCD_ReadRegister(MFRC522::TxControlReg);
+    byte status1 = rfid.PCD_ReadRegister(MFRC522::Status1Reg);
+    byte status2 = rfid.PCD_ReadRegister(MFRC522::Status2Reg);
+    byte comIrq = rfid.PCD_ReadRegister(MFRC522::ComIrqReg);
+    
+    Serial.println("======== RFID DIAGNOSTICS ========");
+    Serial.printf("  Uptime: %lu seconds\n", millis() / 1000);
+    Serial.printf("  Version: 0x%02X\n", version);
+    Serial.printf("  Antenna Gain: 0x%02X (max=0x70)\n", gain);
+    Serial.printf("  TxControl: 0x%02X (antenna %s)\n", txControl, (txControl & 0x03) ? "ON" : "OFF");
+    Serial.printf("  Status1: 0x%02X, Status2: 0x%02X\n", status1, status2);
+    Serial.printf("  ComIrq: 0x%02X\n", comIrq);
+    Serial.println("==================================");
+    
+    // Check for critical issues
+    if (version == 0x00 || version == 0xFF) {
+        Serial.println("[RFID] WARNING: No communication with MFRC522 - check wiring!");
+    } else if ((txControl & 0x03) == 0) {
+        Serial.println("[RFID] WARNING: Antenna is OFF - enabling...");
+        rfid.PCD_AntennaOn();
+    }
+    
+    Serial.println("[RFID] Initialization complete");
 }
 
 void RFIDManager::poll() {
@@ -98,30 +134,42 @@ void RFIDManager::poll() {
         lastHealthCheckMs = now;
         
         if (!performHealthCheck()) {
+            Serial.println("[RFID] Health check failed, reinitializing...");
             reinitReader();
             return;  // Skip this poll cycle after reinit
         }
     }
 
-    // NOTE: Removed the 30-second "no reads" timeout.
-    // The health check above is sufficient to detect actual hardware failures.
-    // The timeout was causing unnecessary reinits when no cards were being scanned.
+    // ----- WATCHDOG: Reinit if reader hasn't responded in a while -----
+    // Only trigger if we've had successful reads before (proves reader was working)
+    if (lastSuccessfulReadMs > 0 && (now - lastSuccessfulReadMs > READER_TIMEOUT_MS)) {
+        Serial.println("[RFID] Watchdog: No successful reads for 30s, reinitializing...");
+        reinitReader();
+        return;
+    }
 
     // ----- PERIODIC ANTENNA CYCLE -----
     if (now - lastAntennaCycleMs >= ANTENNA_CYCLE_INTERVAL_MS) {
         lastAntennaCycleMs = now;
         cycleAntenna();
+        delay(10);  // Small delay after antenna cycle
     }
 
     // ----- CARD DETECTION -----
     // NOTE: Removed rfid.PCD_Init() - this was causing the freeze!
     
+    // Check if card is present (non-blocking)
     if (!rfid.PICC_IsNewCardPresent()) {
         return;
     }
-    Serial.println("[RFID] Card detected, reading serial...");
+    
+    // Additional check: verify card is still in range
     if (!rfid.PICC_ReadCardSerial()) {
-        Serial.println("[RFID] Failed to read card serial.");
+        Serial.println("[RFID] Card detected but failed to read serial.");
+        // Clean up failed read attempt
+        rfid.PICC_HaltA();
+        rfid.PCD_StopCrypto1();
+        delay(10);  // Small delay to let reader recover
         return;
     }
     
@@ -134,6 +182,7 @@ void RFIDManager::poll() {
         Serial.println("[RFID] Cooldown active, ignoring scan.");
         rfid.PICC_HaltA();
         rfid.PCD_StopCrypto1();
+        delay(10);  // Small delay to let reader recover
         return;
     }
     lastReadMs = millis();
@@ -183,6 +232,10 @@ void RFIDManager::poll() {
 
     EventQueue::send(evt);
 
+    // Clean up card communication properly
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
+    
+    // Small delay to let reader fully recover before next poll
+    delay(20);
 }

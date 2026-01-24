@@ -48,15 +48,28 @@ void WiFiManager::update() {
         break;
 
     case WiFiState::CONNECTED:
-        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+        // Set timezone BEFORE configTime for proper initialization
+        // IST is UTC+5:30, which is 5*3600 + 30*60 = 19800 seconds
+        setenv("TZ", "IST-5:30", 1);
+        tzset();
+        configTime(19800, 0, "pool.ntp.org", "time.nist.gov");
         state = WiFiState::NTP_SYNCING;
         break;
 
     case WiFiState::NTP_SYNCING:
         if (ntpTimeValid()) {
+            // Reapply timezone after NTP sync to be safe
             setenv("TZ", "IST-5:30", 1);
             tzset();
-            Serial.println("[NTP] Time synchronized");
+            
+            // Log the current time for debugging
+            time_t now = time(nullptr);
+            struct tm timeinfo;
+            localtime_r(&now, &timeinfo);
+            Serial.printf("[NTP] Time synchronized: %04d-%02d-%02d %02d:%02d:%02d IST\n",
+                          timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                          timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+            
             timeValid = true;
             state = WiFiState::READY;
         }

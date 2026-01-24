@@ -23,7 +23,7 @@ struct LogEntry {
     LogEvent event;
     char uid[16];
     char info[32];
-    char timestampStr[24];  // Original timestamp string for syncing
+    char timestampStr[30];  // Original timestamp string with timezone for syncing
 };
 
 class LogStore {

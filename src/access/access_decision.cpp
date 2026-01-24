@@ -1,5 +1,6 @@
 #include "access_decision.h"
 #include "../storage/nvs_store.h"
+#include "../core/thread_safe.h"
 #include <ctype.h>
 
 // ================= UID VALIDATION =================
@@ -21,6 +22,13 @@ AccessResult AccessDecision::evaluate(const String& uid) {
     }
 
     const char* c_uid = uid.c_str();
+
+    // CRITICAL: Lock mutex to prevent race condition with Core 0 accessing NVS
+    ThreadSafe::Guard guard(100);  // 100ms timeout
+    if (!guard.isAcquired()) {
+        Serial.println("[ACCESS] Failed to acquire mutex, defaulting to PENDING");
+        return AccessResult::PENDING_REPEAT;
+    }
 
     // 2️⃣ BLACKLIST → DENY
     if (NVSStore::isBlacklisted(c_uid)) {

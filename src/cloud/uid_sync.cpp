@@ -1,9 +1,10 @@
 #include "uid_sync.h"
-#include <Firebase_ESP_Client.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include "../storage/nvs_store.h"
 #include "../storage/log_store.h"
-#include "firebase_context.h"
+#include "supabase_config.h"
 
 static uint32_t lastSync = 0;
 static bool manualTrigger = false;
@@ -14,6 +15,7 @@ static const uint32_t PERIODIC_INTERVAL = 60000; // 60s
 void UIDSync::init() {
     deviceId = WiFi.macAddress();
     deviceId.replace(":", "");
+    Serial.println("[UID_SYNC] Initialized for device: " + deviceId);
 }
 
 void UIDSync::trigger() {
@@ -21,9 +23,7 @@ void UIDSync::trigger() {
 }
 
 void UIDSync::update() {
-
     if (WiFi.status() != WL_CONNECTED) return;
-    if (!Firebase.ready()) return;
 
     uint32_t now = millis();
 
@@ -41,40 +41,61 @@ void UIDSync::update() {
 
     lastSync = now;
 
-    String path = "/devices/" + deviceId + "/uids";
-
-    if (!Firebase.RTDB.getJSON(&fbdo, path)) {
+    // Fetch UIDs from Supabase
+    HTTPClient http;
+    String url = String(SUPABASE_URL) + "/rest/v1/users?device_id=eq." + deviceId + "&select=uid,name,status";
+    
+    http.begin(url);
+    http.addHeader("apikey", SUPABASE_KEY);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+    http.addHeader("Content-Type", "application/json");
+    
+    int httpCode = http.GET();
+    
+    if (httpCode != 200) {
+        Serial.printf("[UID_SYNC] HTTP Error: %d\n", httpCode);
+        http.end();
         return;
     }
-
-    FirebaseJson *json = fbdo.jsonObjectPtr();
-    if (!json) return;
-
+    
+    String payload = http.getString();
+    http.end();
+    
+    // Parse JSON response
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, payload);
+    
+    if (err) {
+        Serial.printf("[UID_SYNC] JSON parse error: %s\n", err.c_str());
+        return;
+    }
+    
+    JsonArray users = doc.as<JsonArray>();
+    
+    if (users.size() == 0) {
+        Serial.println("[UID_SYNC] No UIDs found for this device");
+        return;
+    }
+    
     // Reset local UID storage before re-applying
     NVSStore::factoryReset();
-
-    size_t count = json->iteratorBegin();
-
-    for (size_t i = 0; i < count; i++) {
-
-        int type;
-        String uid;
-        String state;
-
-        json->iteratorGet(i, type, uid, state);
-
-        if (state == "WHITELIST") {
-            NVSStore::addToWhitelist(uid.c_str());
+    
+    for (JsonObject user : users) {
+        const char* uid = user["uid"];
+        const char* status = user["status"];
+        
+        if (!uid || !status) continue;
+        
+        if (strcmp(status, "WHITELIST") == 0 || strcmp(status, "whitelist") == 0) {
+            NVSStore::addToWhitelist(uid);
         }
-        else if (state == "BLACKLIST") {
-            NVSStore::addToBlacklist(uid.c_str());
+        else if (strcmp(status, "BLACKLIST") == 0 || strcmp(status, "blacklist") == 0) {
+            NVSStore::addToBlacklist(uid);
         }
-        else if (state == "PENDING") {
-            NVSStore::addToPending(uid.c_str());
+        else if (strcmp(status, "PENDING") == 0 || strcmp(status, "pending") == 0) {
+            NVSStore::addToPending(uid);
         }
     }
-
-    json->iteratorEnd();
-
-    LogStore::log(LogEvent::COMMAND_ERROR, "-", "uid_sync");
+    
+    Serial.printf("[UID_SYNC] Synced %d UIDs from Supabase\n", users.size());
 }

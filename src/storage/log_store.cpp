@@ -1,6 +1,7 @@
 #include "log_store.h"
 #include <LittleFS.h>
 #include <time.h>
+#include "../core/thread_safe.h"
 
 // ========== CONFIG ==========
 static const uint32_t MAX_DAYS_LOCAL = 30;
@@ -43,8 +44,9 @@ static String currentTimestamp() {
     struct tm t;
     localtime_r(&now, &t);
 
-    char buf[20];
-    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+    // Include IST timezone offset (+05:30) in the timestamp
+    char buf[30];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d+05:30",
              t.tm_year + 1900,
              t.tm_mon + 1,
              t.tm_mday,
@@ -66,6 +68,13 @@ void LogStore::init() {
 }
 
 void LogStore::log(LogEvent evt, const char* uid, const char* info) {
+    // CRITICAL: Lock mutex to prevent crash when Core 1 (RFID) and Core 0 (WiFi) access LittleFS simultaneously
+    ThreadSafe::Guard guard(200);  // 200ms timeout
+    if (!guard.isAcquired()) {
+        Serial.println("[LOG] Failed to acquire mutex, skipping log");
+        return;
+    }
+    
     String filename = "/log_" + currentDate() + ".txt";
 
     File f = LittleFS.open(filename, FILE_APPEND);
@@ -125,6 +134,13 @@ void LogStore::cleanupOldLogs() {
 }
 
 void LogStore::forEach(std::function<void(const LogEntry&)> callback) {
+    // Lock mutex to prevent crash during file iteration
+    ThreadSafe::Guard guard(500);  // 500ms timeout for longer operation
+    if (!guard.isAcquired()) {
+        Serial.println("[LOG] Failed to acquire mutex for forEach");
+        return;
+    }
+    
     File root = LittleFS.open("/");
     if (!root) {
         Serial.println("[LOG] Failed to open root");
@@ -197,6 +213,13 @@ void LogStore::forEach(std::function<void(const LogEntry&)> callback) {
 }
 
 void LogStore::clearAllLogs() {
+    // Lock mutex to prevent crash during file deletion
+    ThreadSafe::Guard guard(500);  // 500ms timeout
+    if (!guard.isAcquired()) {
+        Serial.println("[LOG] Failed to acquire mutex for clearAllLogs");
+        return;
+    }
+    
     File root = LittleFS.open("/");
     if (!root) {
         Serial.println("[LOG] Failed to open root for clearing");

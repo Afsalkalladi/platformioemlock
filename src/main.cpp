@@ -7,6 +7,7 @@
 // ===== CORE =====
 #include "core/event_types.h"
 #include "core/event_queue.h"
+#include "core/thread_safe.h"
 
 // ===== ACCESS =====
 #include "access/rfid_manager.h"
@@ -24,6 +25,7 @@
 
 #include "cloud/wifi_manager.h"
 #include "cloud/command_processor.h"
+#include "cloud/health_monitor.h"
 #include <WiFi.h>
 // =====================================================
 // CORE 1 TASK
@@ -74,17 +76,22 @@ void setup() {
     delay(500);
 
     Serial.println("\n[BOOT] System starting");
+    
+    // CRITICAL: Initialize thread safety mutex FIRST before any shared resources
+    ThreadSafe::init();
+    
     RelayController::init();
     NVSStore::init();
-    Serial.print("[HEAP] Free heap before Firebase: ");
+    Serial.print("[HEAP] Free heap: ");
     Serial.println(ESP.getFreeHeap());
-    WiFiManager::init();
+    
     // --- INIT SHARED SYSTEMS ---
     EventQueue::init();
-    RelayController::init();
     BuzzerManager::init();
-    NVSStore::init();
     LogStore::init();
+    
+    // Initialize WiFi AFTER shared resources are protected
+    WiFiManager::init();
     
     // Init exit sensor (physical) after event queue
     ExitSensor::init(EXIT_SENSOR_PIN);
@@ -129,10 +136,14 @@ void loop() {
 
     if (!cloudInitDone && WiFiManager::getState() == WiFiState::READY) {
         CommandProcessor::init();
+        HealthMonitor::init();
         cloudInitDone = true;
     }
+    
+    // Update cloud services
     LogSync::update();
     CommandProcessor::update();
+    HealthMonitor::update();
 
 
     static uint32_t lastPrint = 0;
@@ -153,7 +164,7 @@ if (Serial.available()) {
 }
 
 if (WiFiManager::getState() == WiFiState::READY) {
-    // Safe to use Firebase
+    // Safe to use cloud services
 }
 
 

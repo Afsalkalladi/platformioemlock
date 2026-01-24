@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Command, DeviceSummary, DeviceDetail, DeviceUID, PendingUID, CommandType, AccessLog } from './types'
+import type { Command, DeviceSummary, DeviceDetail, DeviceUID, PendingUID, CommandType, AccessLog, DeviceHealth } from './types'
 
 // Query #1: List all devices (using device_overview view)
 export async function fetchDevices(): Promise<DeviceSummary[]> {
@@ -248,4 +248,20 @@ export async function fetchUIDNames(deviceId: string): Promise<Record<string, st
     })
   }
   return mapping
+}
+
+// Query #17: Fetch device health
+export async function fetchDeviceHealth(deviceId: string): Promise<DeviceHealth | null> {
+  const { data, error } = await supabase
+    .from('device_health')
+    .select('*')
+    .eq('device_id', deviceId)
+    .single()
+
+  if (error) {
+    // No health data yet or table doesn't exist
+    if (error.code === 'PGRST116' || error.code === '42P01') return null
+    throw error
+  }
+  return data as DeviceHealth
 }

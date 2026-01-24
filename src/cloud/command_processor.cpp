@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include "../core/event_queue.h"
+#include "../core/thread_safe.h"
 #include "../storage/log_store.h"
 #include "../storage/nvs_store.h"
 
@@ -158,18 +159,27 @@ void CommandProcessor::update() {
 
     // -------- GET_PENDING: Admin explicitly requests all pending UIDs --------
     if (typeStr == "GET_PENDING") {
-
         StaticJsonDocument<512> out;
         JsonArray arr = out.to<JsonArray>();
 
-        NVSStore::forEachPending([&](const char* uid) {
-            // Use String to force ArduinoJson to copy the data
-            arr.add(String(uid));
-        });
+        // Lock mutex only for NVS access, release before logging
+        {
+            ThreadSafe::Guard guard(200);
+            if (!guard.isAcquired()) {
+                ackCommand(cmdId, "MUTEX_TIMEOUT");
+                return;
+            }
+
+            NVSStore::forEachPending([&](const char* uid) {
+                // Use String to force ArduinoJson to copy the data
+                arr.add(String(uid));
+            });
+        } // Mutex released here
 
         String result;
         serializeJson(arr, result);
 
+        // Log after mutex is released
         LogStore::log(LogEvent::UID_SYNC, "-", "get_pending");
 
         if (ackCommand(cmdId, result)) {
@@ -204,7 +214,19 @@ void CommandProcessor::update() {
             return;
         }
 
-        if (NVSStore::addToWhitelist(uid)) {
+        bool success = false;
+        // Lock mutex only for NVS access, release before logging
+        {
+            ThreadSafe::Guard guard(200);
+            if (!guard.isAcquired()) {
+                ackCommand(cmdId, "MUTEX_TIMEOUT");
+                return;
+            }
+
+            success = NVSStore::addToWhitelist(uid);
+        } // Mutex released here
+
+        if (success) {
             Serial.println("[CMD] Whitelisted UID: " + String(uid));
             LogStore::log(LogEvent::UID_WHITELISTED, uid, "supabase");
             ackCommand(cmdId, "WHITELIST_ADD_OK");
@@ -228,7 +250,19 @@ void CommandProcessor::update() {
             return;
         }
 
-        if (NVSStore::addToBlacklist(uid)) {
+        bool success = false;
+        // Lock mutex only for NVS access, release before logging
+        {
+            ThreadSafe::Guard guard(200);
+            if (!guard.isAcquired()) {
+                ackCommand(cmdId, "MUTEX_TIMEOUT");
+                return;
+            }
+
+            success = NVSStore::addToBlacklist(uid);
+        } // Mutex released here
+
+        if (success) {
             Serial.println("[CMD] Blacklisted UID: " + String(uid));
             LogStore::log(LogEvent::UID_BLACKLISTED, uid, "supabase");
             ackCommand(cmdId, "BLACKLIST_ADD_OK");
@@ -252,7 +286,17 @@ void CommandProcessor::update() {
             return;
         }
 
-        NVSStore::removeUID(uid);
+        // Lock mutex only for NVS access, release before logging
+        {
+            ThreadSafe::Guard guard(200);
+            if (!guard.isAcquired()) {
+                ackCommand(cmdId, "MUTEX_TIMEOUT");
+                return;
+            }
+
+            NVSStore::removeUID(uid);
+        } // Mutex released here
+
         Serial.println("[CMD] Removed UID: " + String(uid));
         LogStore::log(LogEvent::UID_REMOVED, uid, "supabase");
         ackCommand(cmdId, "REMOVE_UID_OK");
@@ -379,23 +423,35 @@ void CommandProcessor::update() {
             return;
         }
 
-        // Clear all local state first
-        NVSStore::clearWhitelist();
-        NVSStore::clearBlacklist();
-        NVSStore::clearPending();
+        // Lock mutex for all NVS operations, release before logging
+        {
+            ThreadSafe::Guard guard(500);  // Longer timeout for bulk operations
+            if (!guard.isAcquired()) {
+                ackCommand(cmdId, "MUTEX_TIMEOUT");
+                lastAckedCmd = cmdId;
+                NVSStore::setLastCommandId(cmdId);
+                return;
+            }
 
-        // Apply whitelist from server
-        for (JsonVariant v : wl) {
-            NVSStore::addToWhitelist(v.as<const char*>());
-            Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
-        }
+            // Clear all local state first
+            NVSStore::clearWhitelist();
+            NVSStore::clearBlacklist();
+            NVSStore::clearPending();
 
-        // Apply blacklist from server
-        for (JsonVariant v : bl) {
-            NVSStore::addToBlacklist(v.as<const char*>());
-            Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
-        }
+            // Apply whitelist from server
+            for (JsonVariant v : wl) {
+                NVSStore::addToWhitelist(v.as<const char*>());
+                Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
+            }
 
+            // Apply blacklist from server
+            for (JsonVariant v : bl) {
+                NVSStore::addToBlacklist(v.as<const char*>());
+                Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
+            }
+        } // Mutex released here
+
+        // Log after mutex is released
         LogStore::log(LogEvent::UID_SYNC, "-", "cloud");
         ackCommand(cmdId, "SYNC_UIDS_OK");
 
