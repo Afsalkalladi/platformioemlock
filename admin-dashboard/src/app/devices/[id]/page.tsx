@@ -565,8 +565,8 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
     return `${mins}m`
   }
 
-  const formatBytes = (bytes: number) => {
-    if (!bytes && bytes !== 0) return 'N/A'
+  const formatBytes = (bytes: number | null | undefined) => {
+    if (bytes === null || bytes === undefined) return 'N/A'
     if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     if (bytes > 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${bytes} B`
