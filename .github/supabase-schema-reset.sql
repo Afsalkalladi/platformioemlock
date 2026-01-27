@@ -154,21 +154,31 @@ BEGIN
       DELETE FROM device_uids 
       WHERE device_id = NEW.device_id AND uid = NEW.uid;
     
-    -- SYNC_UIDS (full replace)
+    -- SYNC_UIDS (upsert approach - preserves existing names)
     ELSIF NEW.type = 'SYNC_UIDS' AND NEW.payload IS NOT NULL THEN
-      -- Clear existing UIDs for this device
-      DELETE FROM device_uids WHERE device_id = NEW.device_id;
+      -- Delete UIDs that are no longer in the sync list
+      DELETE FROM device_uids 
+      WHERE device_id = NEW.device_id 
+        AND uid NOT IN (
+          SELECT jsonb_array_elements_text(NEW.payload->'whitelist')
+          UNION
+          SELECT jsonb_array_elements_text(NEW.payload->'blacklist')
+        );
       
-      -- Insert whitelist (if exists)
+      -- Upsert whitelist (preserves existing names)
       IF NEW.payload ? 'whitelist' THEN
         INSERT INTO device_uids (device_id, uid, state)
-        SELECT NEW.device_id, jsonb_array_elements_text(NEW.payload->'whitelist'), 'WHITELIST';
+        SELECT NEW.device_id, jsonb_array_elements_text(NEW.payload->'whitelist'), 'WHITELIST'
+        ON CONFLICT (device_id, uid) 
+        DO UPDATE SET state = 'WHITELIST', updated_at = NOW();
       END IF;
       
-      -- Insert blacklist (if exists)
+      -- Upsert blacklist (preserves existing names)
       IF NEW.payload ? 'blacklist' THEN
         INSERT INTO device_uids (device_id, uid, state)
-        SELECT NEW.device_id, jsonb_array_elements_text(NEW.payload->'blacklist'), 'BLACKLIST';
+        SELECT NEW.device_id, jsonb_array_elements_text(NEW.payload->'blacklist'), 'BLACKLIST'
+        ON CONFLICT (device_id, uid) 
+        DO UPDATE SET state = 'BLACKLIST', updated_at = NOW();
       END IF;
     END IF;
   END IF;

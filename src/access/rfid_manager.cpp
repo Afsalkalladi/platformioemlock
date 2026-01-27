@@ -239,3 +239,33 @@ void RFIDManager::poll() {
     // Small delay to let reader fully recover before next poll
     delay(20);
 }
+
+RFIDHealth RFIDManager::getHealth() {
+    RFIDHealth health = {};
+    
+    // Read version to check communication
+    health.version = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+    health.communicationOk = (health.version != 0x00 && health.version != 0xFF);
+    
+    if (health.communicationOk) {
+        // Read antenna and status registers
+        health.antennaGain = rfid.PCD_ReadRegister(MFRC522::RFCfgReg) & 0x70;
+        health.txControl = rfid.PCD_ReadRegister(MFRC522::TxControlReg);
+        health.antennaOn = (health.txControl & 0x03) != 0;
+        health.status1 = rfid.PCD_ReadRegister(MFRC522::Status1Reg);
+        health.status2 = rfid.PCD_ReadRegister(MFRC522::Status2Reg);
+        health.comIrq = rfid.PCD_ReadRegister(MFRC522::ComIrqReg);
+    } else {
+        // Communication failed - set defaults
+        health.antennaGain = 0;
+        health.txControl = 0;
+        health.antennaOn = false;
+        health.status1 = 0;
+        health.status2 = 0;
+        health.comIrq = 0;
+    }
+    
+    health.pollCount = pollCount;
+    
+    return health;
+}

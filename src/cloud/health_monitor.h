@@ -1,5 +1,17 @@
 #pragma once
 #include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+// Task information structure
+struct TaskInfo {
+    char name[32];              // Task name
+    uint8_t core;              // Core ID (0 or 1)
+    uint32_t stackHighWater;   // Stack high water mark
+    uint32_t stackSize;        // Total stack size
+    uint8_t priority;          // Task priority
+    bool isRunning;            // Is task currently running
+};
 
 // Health status that can be reported to the cloud
 struct DeviceHealth {
@@ -10,14 +22,55 @@ struct DeviceHealth {
     uint32_t lastHealthCheckMs;          // Millis of last health check
     bool rfidHealthy;                    // Current health status of RFID reader
     byte rfidVersion;                    // MFRC522 version register value
+    bool rfidAntennaOn;                  // Is antenna enabled
+    uint8_t rfidAntennaGain;             // Antenna gain (0x00-0x70)
+    uint8_t rfidTxControl;                // Transmit control register
+    uint8_t rfidStatus1;                 // Status register 1
+    uint8_t rfidStatus2;                 // Status register 2
+    uint8_t rfidComIrq;                  // Communication IRQ register
+    bool rfidCommunicationOk;            // Can communicate with reader
+    uint32_t rfidPollCount;              // Total number of polls
     
     // System Health
     uint32_t uptimeSeconds;              // Total uptime in seconds
     uint32_t freeHeapBytes;              // Free heap memory
+    uint32_t totalHeapBytes;             // Total heap size
+    uint32_t minFreeHeapBytes;           // Minimum free heap ever
+    uint32_t largestFreeBlockBytes;      // Largest free block
     uint32_t wifiDisconnectCount;        // WiFi disconnect count
     int8_t wifiRssi;                     // WiFi signal strength
     bool wifiConnected;                  // WiFi connection status
     bool ntpSynced;                      // NTP time sync status
+    
+    // Processor Information
+    uint32_t cpuFreqMhz;                 // CPU frequency in MHz
+    uint8_t chipModel;                   // Chip model (ESP32 = 0, ESP32-S2 = 2, etc.)
+    uint8_t chipRevision;                // Chip revision
+    uint8_t chipCores;                   // Number of CPU cores
+    
+    // Core 0 Status
+    bool core0IsIdle;                    // Is core 0 idle
+    char core0CurrentTask[32];          // Current task name on core 0
+    uint32_t core0FreeStackBytes;        // Free stack on core 0
+    
+    // Core 1 Status
+    bool core1IsIdle;                    // Is core 1 idle
+    char core1CurrentTask[32];           // Current task name on core 1
+    uint32_t core1FreeStackBytes;        // Free stack on core 1
+    
+    // Storage Information
+    uint32_t littlefsTotalBytes;         // LittleFS total size
+    uint32_t littlefsUsedBytes;          // LittleFS used size
+    uint32_t littlefsFreeBytes;          // LittleFS free size
+    uint32_t nvsUsedEntries;             // NVS used entries count
+    
+    // Watchdog Information
+    bool watchdogEnabled;                // Is watchdog enabled
+    uint32_t watchdogTimeoutMs;         // Watchdog timeout in ms
+    
+    // Task List
+    TaskInfo tasks[16];                  // Array of task info (max 16 tasks)
+    uint8_t taskCount;                   // Number of tasks
     
     // Timestamps (for cloud logging)
     String lastRfidError;                // Description of last RFID error
