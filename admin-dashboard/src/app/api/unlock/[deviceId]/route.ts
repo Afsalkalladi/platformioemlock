@@ -14,6 +14,13 @@ interface RouteParams {
   params: Promise<{ deviceId: string }>
 }
 
+// CORS headers for iOS Shortcuts compatibility
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
 // Ensure device exists in devices table
 async function ensureDeviceExists(deviceId: string): Promise<void> {
   const { error } = await supabase
@@ -28,9 +35,18 @@ async function ensureDeviceExists(deviceId: string): Promise<void> {
   }
 }
 
+// Handle CORS preflight
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: corsHeaders })
+}
+
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { deviceId } = await params
+    
+    // Check if client wants plain text response (for iOS Shortcuts)
+    const wantsText = request.nextUrl.searchParams.get('format') === 'text' ||
+                      request.headers.get('accept')?.includes('text/plain')
     
     // Optional: Verify token if set
     if (QUICK_UNLOCK_TOKEN) {
@@ -39,17 +55,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                     request.nextUrl.searchParams.get('token')
       
       if (token !== QUICK_UNLOCK_TOKEN) {
+        if (wantsText) {
+          return new NextResponse('ERROR: Unauthorized', { 
+            status: 401, 
+            headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
+          })
+        }
         return NextResponse.json(
           { success: false, error: 'Unauthorized' },
-          { status: 401 }
+          { status: 401, headers: corsHeaders }
         )
       }
     }
 
     if (!deviceId) {
+      if (wantsText) {
+        return new NextResponse('ERROR: Device ID required', { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
+        })
+      }
       return NextResponse.json(
         { success: false, error: 'Device ID required' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       )
     }
 
@@ -69,10 +97,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (error) {
       console.error('Supabase error:', error)
+      if (wantsText) {
+        return new NextResponse('ERROR: ' + error.message, { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
+        })
+      }
       return NextResponse.json(
         { success: false, error: error.message },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       )
+    }
+
+    // Return plain text for iOS Shortcuts compatibility
+    if (wantsText) {
+      return new NextResponse('OK: Door unlock command sent', { 
+        status: 200, 
+        headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
+      })
     }
 
     return NextResponse.json({
@@ -80,12 +122,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       message: 'Unlock command sent',
       command_id: data.id,
       device_id: deviceId,
-    })
+    }, { headers: corsHeaders })
   } catch (err) {
     console.error('Unlock API error:', err)
+    
+    const wantsText = request.nextUrl.searchParams.get('format') === 'text'
+    if (wantsText) {
+      return new NextResponse('ERROR: Internal server error', { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
+      })
+    }
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     )
   }
 }
