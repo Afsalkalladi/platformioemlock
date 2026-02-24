@@ -84,19 +84,50 @@ export interface StorageInfo {
 
 export interface DeviceHealth {
   device_id: string
+  firmware_version: string | null
+
+  // System
   uptime_seconds: number
   free_heap_bytes: number
   total_heap_bytes: number | null
   min_free_heap_bytes: number | null
   largest_free_block_bytes: number | null
-  wifi_rssi: number
+
+  // WiFi
   wifi_connected: boolean
+  wifi_rssi: number
   ntp_synced: boolean
   wifi_disconnect_count: number
+
+  // Processor
   cpu_freq_mhz: number | null
   chip_model: number | null
   chip_revision: number | null
   chip_cores: number | null
+
+  // Core status
+  core0_is_idle: boolean | null
+  core0_current_task: string | null
+  core0_free_stack_bytes: number | null
+  core1_is_idle: boolean | null
+  core1_current_task: string | null
+  core1_free_stack_bytes: number | null
+
+  // Storage
+  storage_littlefs_total_bytes: number | null
+  storage_littlefs_used_bytes: number | null
+  storage_littlefs_free_bytes: number | null
+  storage_nvs_used_entries: number | null
+
+  // Watchdog
+  watchdog_enabled: boolean | null
+  watchdog_timeout_ms: number | null
+
+  // Tasks
+  tasks: TaskInfo[] | null
+  task_count: number | null
+
+  // RFID / PN532
   rfid_healthy: boolean
   rfid_communication_ok: boolean | null
   rfid_sam_configured: boolean | null
@@ -105,28 +136,13 @@ export interface DeviceHealth {
   rfid_firmware_minor: number | null
   rfid_firmware_support: number | null
   rfid_reinit_count: number
-  rfid_soft_reset_count: number | null
   rfid_poll_count: number | null
-  storage_littlefs_total_bytes: number | null
-  storage_littlefs_used_bytes: number | null
-  storage_littlefs_free_bytes: number | null
-  storage_nvs_used_entries: number | null
-  core0_id: number | null
-  core0_is_idle: boolean | null
-  core0_current_task: string | null
-  core0_free_stack_bytes: number | null
-  core0_cpu_usage_percent: number | null
-  core1_id: number | null
-  core1_is_idle: boolean | null
-  core1_current_task: string | null
-  core1_free_stack_bytes: number | null
-  core1_cpu_usage_percent: number | null
-  watchdog_enabled: boolean | null
-  watchdog_timeout_ms: number | null
-  tasks: TaskInfo[] | null
-  task_count: number | null
+
+  // RFID timestamps
   last_rfid_error: string | null
   last_rfid_error_time: string | null
   last_successful_read_time: string | null
+
+  // Row metadata
   updated_at: string
 }

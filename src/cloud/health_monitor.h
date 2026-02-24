@@ -3,103 +3,101 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// Task information structure
+// ==================== CONFIG ====================
+#define FW_VERSION_STR  "1.0.0"
+
+// ==================== SUB-STRUCTURES ====================
+
 struct TaskInfo {
-    char name[32];              // Task name
-    uint8_t core;              // Core ID (0 or 1)
-    uint32_t stackHighWater;   // Stack high water mark
-    uint32_t stackSize;        // Total stack size
-    uint8_t priority;          // Task priority
-    bool isRunning;            // Is task currently running
+    char name[32];
+    uint8_t core;
+    uint32_t stackHighWater;   // bytes
+    uint32_t stackSize;        // bytes (0 if unavailable)
+    uint8_t priority;
+    bool isRunning;
 };
 
-// Health status that can be reported to the cloud
+// ==================== DEVICE HEALTH STRUCT ====================
+// Every field here maps 1-to-1 to a JSON key sent to Supabase.
+
 struct DeviceHealth {
-    // RFID Reader Health (PN532)
-    uint32_t rfidReinitCount;           // How many times the reader was fully reinitialized
-    uint32_t rfidSoftResetCount;        // How many times soft reset was performed
-    uint32_t lastSuccessfulReadMs;       // Millis of last successful card read
-    uint32_t lastHealthCheckMs;          // Millis of last health check
-    bool rfidHealthy;                    // Current health status of RFID reader
-    bool rfidCommunicationOk;            // Can communicate with reader over SPI
-    bool rfidSamConfigured;              // SAM configuration succeeded
-    uint8_t rfidIC;                      // PN532 IC code (expect 0x32)
-    uint8_t rfidFirmwareMaj;             // PN532 firmware major version
-    uint8_t rfidFirmwareMin;             // PN532 firmware minor version
-    uint8_t rfidFirmwareSupport;         // PN532 supported features bitmask
-    uint32_t rfidPollCount;              // Total number of polls
-    
-    // System Health
-    uint32_t uptimeSeconds;              // Total uptime in seconds
-    uint32_t freeHeapBytes;              // Free heap memory
-    uint32_t totalHeapBytes;             // Total heap size
-    uint32_t minFreeHeapBytes;           // Minimum free heap ever
-    uint32_t largestFreeBlockBytes;      // Largest free block
-    uint32_t wifiDisconnectCount;        // WiFi disconnect count
-    int8_t wifiRssi;                     // WiFi signal strength
-    bool wifiConnected;                  // WiFi connection status
-    bool ntpSynced;                      // NTP time sync status
-    
-    // Processor Information
-    uint32_t cpuFreqMhz;                 // CPU frequency in MHz
-    uint8_t chipModel;                   // Chip model (ESP32 = 0, ESP32-S2 = 2, etc.)
-    uint8_t chipRevision;                // Chip revision
-    uint8_t chipCores;                   // Number of CPU cores
-    
-    // Core 0 Status
-    bool core0IsIdle;                    // Is core 0 idle
-    char core0CurrentTask[32];          // Current task name on core 0
-    uint32_t core0FreeStackBytes;        // Free stack on core 0
-    
-    // Core 1 Status
-    bool core1IsIdle;                    // Is core 1 idle
-    char core1CurrentTask[32];           // Current task name on core 1
-    uint32_t core1FreeStackBytes;        // Free stack on core 1
-    
-    // Storage Information
-    uint32_t littlefsTotalBytes;         // LittleFS total size
-    uint32_t littlefsUsedBytes;          // LittleFS used size
-    uint32_t littlefsFreeBytes;          // LittleFS free size
-    uint32_t nvsUsedEntries;             // NVS used entries count
-    
-    // Watchdog Information
-    bool watchdogEnabled;                // Is watchdog enabled
-    uint32_t watchdogTimeoutMs;         // Watchdog timeout in ms
-    
-    // Task List
-    TaskInfo tasks[16];                  // Array of task info (max 16 tasks)
-    uint8_t taskCount;                   // Number of tasks
-    
-    // Timestamps (for cloud logging)
-    String lastRfidError;                // Description of last RFID error
-    String lastRfidErrorTime;            // When the last error occurred
-    String lastSuccessfulReadTime;       // Human readable time of last successful scan
+    // ---------- RFID / PN532 ----------
+    bool     rfidHealthy;            // communication OK && SAM OK
+    bool     rfidCommunicationOk;    // SPI comms alive
+    bool     rfidSamConfigured;      // SAMConfig() succeeded
+    uint8_t  rfidIC;                 // IC byte (0x32 = PN532)
+    uint8_t  rfidFirmwareMaj;        // firmware major
+    uint8_t  rfidFirmwareMin;        // firmware minor
+    uint8_t  rfidFirmwareSupport;    // feature bitmask
+    uint32_t rfidPollCount;          // total poll() calls
+    uint32_t rfidReinitCount;        // full hardware reinits
+    String   lastRfidError;          // last error description
+    String   lastRfidErrorTime;      // ISO timestamp
+    String   lastSuccessfulReadTime; // ISO timestamp
+
+    // ---------- System ----------
+    uint32_t uptimeSeconds;
+    uint32_t freeHeapBytes;
+    uint32_t totalHeapBytes;
+    uint32_t minFreeHeapBytes;
+    uint32_t largestFreeBlockBytes;
+
+    // ---------- WiFi ----------
+    bool     wifiConnected;
+    int8_t   wifiRssi;
+    bool     ntpSynced;
+    uint32_t wifiDisconnectCount;
+
+    // ---------- Processor ----------
+    uint32_t cpuFreqMhz;
+    uint8_t  chipModel;        // 0=ESP32, 2=S2, 5=S3, 9=C3
+    uint8_t  chipRevision;
+    uint8_t  chipCores;
+
+    // ---------- Dual-core status ----------
+    bool     core0IsIdle;
+    char     core0CurrentTask[32];
+    uint32_t core0FreeStackBytes;
+
+    bool     core1IsIdle;
+    char     core1CurrentTask[32];
+    uint32_t core1FreeStackBytes;
+
+    // ---------- Storage ----------
+    uint32_t littlefsTotalBytes;
+    uint32_t littlefsUsedBytes;
+    uint32_t littlefsFreeBytes;
+    uint32_t nvsUsedEntries;
+
+    // ---------- Watchdog ----------
+    bool     watchdogEnabled;
+    uint32_t watchdogTimeoutMs;
+
+    // ---------- FreeRTOS tasks ----------
+    TaskInfo tasks[16];
+    uint8_t  taskCount;
 };
+
+// ==================== HEALTH MONITOR API ====================
+// Only init() and update() are called from main.cpp.
+// Everything else is auto-collected from RFIDManager::getHealth()
+// and ESP system APIs each cycle.
 
 class HealthMonitor {
 public:
     static void init();
-    static void update();                // Call from main loop
-    
-    // RFID health reporting
-    static void reportRfidOk();
-    static void reportRfidError(const char* error);
-    static void reportRfidReinit();
-    static void reportRfidSoftReset();
-    static void setRfidIC(uint8_t ic);
-    static void setRfidHealthy(bool healthy);
-    
-    // System health
+    static void update();              // call from loop(), handles periodic cloud push
+
+    // Manual event reporters (WiFi layer calls these)
     static void reportWifiDisconnect();
-    static void setWifiConnected(bool connected, int8_t rssi);
-    static void setNtpSynced(bool synced);
-    
-    // Get current health snapshot
+
+    // Snapshot for debug / serial print
     static DeviceHealth getHealth();
-    
-    // Force sync health to cloud
+
+    // Force an immediate push to Supabase
     static void syncToCloud();
-    
+
 private:
+    static void collectAll();          // gather every metric
     static void pushHealthToSupabase();
 };
