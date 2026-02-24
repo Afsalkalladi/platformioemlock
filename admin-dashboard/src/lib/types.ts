@@ -138,6 +138,9 @@ export interface DeviceHealth {
   rfid_reinit_count: number
   rfid_poll_count: number | null
 
+  // Voltage monitoring
+  voltage_3v3: number | null
+
   // RFID timestamps
   last_rfid_error: string | null
   last_rfid_error_time: string | null

@@ -88,7 +88,11 @@ export default function DeviceDetailPage() {
   }
 
   const lastSeen = detail ? new Date(detail.last_seen) : null
-  const isOnline = lastSeen ? Date.now() - lastSeen.getTime() < 10000 : false
+  // Use health heartbeat (pushed every 60s) as primary online indicator.
+  // Threshold = 120s (2× push interval) to avoid false offline during slow cycles.
+  const healthTs = health ? new Date(health.updated_at) : null
+  const onlineRef = healthTs ?? lastSeen
+  const isOnline = onlineRef ? Date.now() - onlineRef.getTime() < 120000 : false
 
   return (
     <div className="min-h-screen p-8 bg-gray-50">
@@ -665,10 +669,18 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
                 <span className="font-medium">{health.rfid_firmware_major}.{health.rfid_firmware_minor}</span>
               </div>
             )}
-            {health.rfid_firmware_support !== null && (
+            {health.rfid_firmware_support != null && (
               <div className="flex justify-between">
                 <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Features:</span>
                 <span className="font-medium font-mono">0x{health.rfid_firmware_support.toString(16).toUpperCase().padStart(2, '0')}</span>
+              </div>
+            )}
+            {health.voltage_3v3 != null && (
+              <div className="flex justify-between">
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Supply:</span>
+                <span className={`font-medium ${health.voltage_3v3 < 3.0 ? 'text-red-700' : health.voltage_3v3 < 3.1 ? 'text-yellow-600' : 'text-green-700'}`}>
+                  {health.voltage_3v3.toFixed(2)}V
+                </span>
               </div>
             )}
           </div>
@@ -778,7 +790,7 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
             <div className="flex justify-between">
               <span className="text-indigo-600">IC Code:</span>
               <span className="font-medium font-mono">
-                {health.rfid_ic !== null ? `0x${health.rfid_ic.toString(16).toUpperCase().padStart(2, '0')}` : 'N/A'}
+                {health.rfid_ic != null ? `0x${health.rfid_ic.toString(16).toUpperCase().padStart(2, '0')}` : 'N/A'}
               </span>
             </div>
             <div className="flex justify-between">
@@ -792,7 +804,7 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
             <div className="flex justify-between">
               <span className="text-indigo-600">Support Flags:</span>
               <span className="font-medium font-mono">
-                {health.rfid_firmware_support !== null
+                {health.rfid_firmware_support != null
                   ? `0x${health.rfid_firmware_support.toString(16).toUpperCase().padStart(2, '0')}`
                   : 'N/A'}
               </span>
@@ -833,6 +845,15 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
               <div className="flex justify-between">
                 <span className="text-indigo-600">Last Read:</span>
                 <span className="font-medium text-xs">{new Date(health.last_successful_read_time).toLocaleString()}</span>
+              </div>
+            )}
+            {health.voltage_3v3 != null && (
+              <div className="flex justify-between">
+                <span className="text-indigo-600">Supply Voltage:</span>
+                <span className={`font-medium ${health.voltage_3v3 < 3.0 ? 'text-red-600' : health.voltage_3v3 < 3.1 ? 'text-yellow-600' : 'text-green-600'}`}>
+                  {health.voltage_3v3.toFixed(2)}V
+                  {health.voltage_3v3 < 3.0 ? ' ⚠️ LOW' : health.voltage_3v3 < 3.1 ? ' ⚠️ Marginal' : ' ✓'}
+                </span>
               </div>
             )}
           </div>

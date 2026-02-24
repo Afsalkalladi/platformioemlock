@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { fetchDevices } from '@/lib/api'
+import { fetchDevices, fetchAllDeviceHealthTimestamps } from '@/lib/api'
 import type { DeviceSummary } from '@/lib/types'
 
 export default function DevicesPage() {
   const [devices, setDevices] = useState<DeviceSummary[]>([])
+  const [healthTimestamps, setHealthTimestamps] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -18,8 +19,12 @@ export default function DevicesPage() {
 
   async function loadDevices() {
     try {
-      const data = await fetchDevices()
+      const [data, healthTs] = await Promise.all([
+        fetchDevices(),
+        fetchAllDeviceHealthTimestamps(),
+      ])
       setDevices(data)
+      setHealthTimestamps(healthTs)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load devices')
@@ -78,8 +83,13 @@ export default function DevicesPage() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {devices.map((device) => {
-                  const lastSeen = new Date(device.last_command_at)
-                  const isOnline = Date.now() - lastSeen.getTime() < 10000
+                  const lastCommand = new Date(device.last_command_at)
+                  const healthAt = healthTimestamps[device.device_id]
+                    ? new Date(healthTimestamps[device.device_id])
+                    : null
+                  // Use the most recent of command timestamp or health heartbeat
+                  const lastSeen = healthAt && healthAt > lastCommand ? healthAt : lastCommand
+                  const isOnline = Date.now() - lastSeen.getTime() < 120000
 
                   return (
                     <tr key={device.device_id} className="hover:bg-gray-50">

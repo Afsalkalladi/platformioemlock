@@ -2,6 +2,7 @@
 #include "supabase_config.h"
 #include "wifi_manager.h"
 #include "../access/rfid_manager.h"
+#include "../config/config.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <time.h>
@@ -183,6 +184,18 @@ static void collectWatchdogInfo() {
     health.watchdogTimeoutMs = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;
 }
 
+static void collectVoltageInfo() {
+    // Multi-sample ADC read for noise reduction (16 samples)
+    uint32_t sum = 0;
+    for (int i = 0; i < 16; i++) {
+        sum += analogRead(VOLTAGE_MONITOR_PIN);
+        delayMicroseconds(100);
+    }
+    float avg = sum / 16.0f;
+    // ESP32 ADC at 11dB attenuation: 0-4095 maps to ~0-3.3V
+    health.voltage3v3 = (avg / 4095.0f) * 3.3f * VOLTAGE_DIVIDER_RATIO;
+}
+
 // ==================== PUBLIC API ====================
 
 void HealthMonitor::init() {
@@ -197,6 +210,9 @@ void HealthMonitor::init() {
     health.wifiConnected = false;
     health.ntpSynced     = false;
 
+    // Configure ADC for voltage monitoring
+    analogSetPinAttenuation(VOLTAGE_MONITOR_PIN, ADC_11db);
+
     collectProcessorInfo();
     collectWatchdogInfo();
 
@@ -210,6 +226,7 @@ void HealthMonitor::collectAll() {
     collectTaskInfo();
     collectStorageInfo();
     collectRfidHealth();
+    collectVoltageInfo();
 }
 
 void HealthMonitor::update() {
@@ -312,6 +329,9 @@ void HealthMonitor::pushHealthToSupabase() {
     json += "\"rfid_firmware_support\":" + String(health.rfidFirmwareSupport)                    + ",";
     json += "\"rfid_reinit_count\":"     + String(health.rfidReinitCount)                        + ",";
     json += "\"rfid_poll_count\":"       + String(health.rfidPollCount)                          + ",";
+
+    // ---- Voltage ----
+    json += "\"voltage_3v3\":"           + String(health.voltage3v3, 2)                            + ",";
 
     // ---- RFID timestamps (nullable) ----
     if (health.lastRfidError.length() > 0) {

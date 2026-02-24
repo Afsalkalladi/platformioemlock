@@ -76,6 +76,9 @@ struct DeviceHealth {
     // ---------- FreeRTOS tasks ----------
     TaskInfo tasks[16];
     uint8_t  taskCount;
+
+    // ---------- Voltage monitoring ----------
+    float voltage3v3;   // PN532 supply voltage (volts, from ADC)
 };
 
 // ==================== HEALTH MONITOR API ====================

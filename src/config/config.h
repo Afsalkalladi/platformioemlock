@@ -14,6 +14,13 @@
 #define PN532_SS_PIN               21
 #define PN532_RST_PIN              22
 
+// Voltage monitoring (ADC1 pin to read PN532 3.3V supply)
+// Wire the 3.3V supply line to this GPIO via a voltage divider if needed.
+// With a direct 3.3V connection and 11dB attenuation: RATIO = 1.0
+// With a 2:1 voltage divider (e.g., 2×10K): RATIO = 2.0
+#define VOLTAGE_MONITOR_PIN        34
+#define VOLTAGE_DIVIDER_RATIO      1.0f
+
 // ==================== HEALTH REPORTING ====================
 #define HEALTH_PRINT_INTERVAL_MS   5000   // Print health every 5s
 

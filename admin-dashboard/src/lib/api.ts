@@ -265,3 +265,17 @@ export async function fetchDeviceHealth(deviceId: string): Promise<DeviceHealth 
   }
   return data as DeviceHealth
 }
+
+// Query #18: Fetch health timestamps for all devices (used for online/offline indicator)
+export async function fetchAllDeviceHealthTimestamps(): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from('device_health')
+    .select('device_id, updated_at')
+
+  if (error) return {}
+  const map: Record<string, string> = {}
+  for (const row of data ?? []) {
+    map[row.device_id] = row.updated_at
+  }
+  return map
+}
