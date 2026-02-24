@@ -98,16 +98,14 @@ export interface DeviceHealth {
   chip_revision: number | null
   chip_cores: number | null
   rfid_healthy: boolean
-  rfid_version: number
+  rfid_communication_ok: boolean | null
+  rfid_sam_configured: boolean | null
+  rfid_ic: number | null
+  rfid_firmware_major: number | null
+  rfid_firmware_minor: number | null
+  rfid_firmware_support: number | null
   rfid_reinit_count: number
   rfid_soft_reset_count: number | null
-  rfid_communication_ok: boolean | null
-  rfid_antenna_on: boolean | null
-  rfid_antenna_gain: number | null
-  rfid_tx_control: number | null
-  rfid_status1: number | null
-  rfid_status2: number | null
-  rfid_com_irq: number | null
   rfid_poll_count: number | null
   storage_littlefs_total_bytes: number | null
   storage_littlefs_used_bytes: number | null

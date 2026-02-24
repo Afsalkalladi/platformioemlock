@@ -34,7 +34,7 @@ void core1_access_task(void* param) {
     Serial.println("[CORE1] Access task starting");
 
     // --- INIT MODULES (ONCE) ---
-    RFIDManager::init(21, 22);   // keep legacy RFID init
+    RFIDManager::init(PN532_SS_PIN, PN532_RST_PIN);   // PN532 over SPI
     AccessController::init();
 
     Serial.println("[CORE1] Access system initialized");

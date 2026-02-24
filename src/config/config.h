@@ -7,6 +7,13 @@
 #define BUZZER_PIN                 32
 #define EXIT_SENSOR_PIN            35
 
+// RFID PN532 (SPI) — same pins formerly used by RC522
+#define PN532_SCK_PIN              18
+#define PN532_MISO_PIN             19
+#define PN532_MOSI_PIN             23
+#define PN532_SS_PIN               21
+#define PN532_RST_PIN              22
+
 // ==================== HEALTH REPORTING ====================
 #define HEALTH_PRINT_INTERVAL_MS   5000   // Print health every 5s
 

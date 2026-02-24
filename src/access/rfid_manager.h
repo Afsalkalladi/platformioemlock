@@ -20,17 +20,16 @@ struct RFIDEvent {
 
 // ================= RFID MANAGER INTERFACE =================
 
-// RFID Health Information
+// RFID Health Information (PN532)
 struct RFIDHealth {
-    bool communicationOk;
-    bool antennaOn;
-    uint8_t version;
-    uint8_t antennaGain;
-    uint8_t txControl;
-    uint8_t status1;
-    uint8_t status2;
-    uint8_t comIrq;
-    uint32_t pollCount;
+    bool communicationOk;       // Can talk to PN532 over SPI
+    bool samConfigured;         // SAM configuration succeeded
+    uint8_t ic;                 // PN532 IC code (should be 0x32)
+    uint8_t firmwareVersionMaj; // Firmware major version
+    uint8_t firmwareVersionMin; // Firmware minor version
+    uint8_t firmwareSupport;    // Firmware supported features bitmask
+    uint32_t pollCount;         // Total poll() invocations
+    uint32_t reinitCount;       // How many times we reinitialized
 };
 
 class RFIDManager {

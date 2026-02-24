@@ -577,17 +577,11 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
     return `${value.toFixed(1)}%`
   }
 
-  const getRfidVersionName = (version: number) => {
-    switch (version) {
-      case 0x91: return 'MFRC522 v1.0'
-      case 0x92: return 'MFRC522 v2.0'
-      case 0x82: return 'FM17522'
-      case 0x88: return 'FM17522E'
-      case 0x12: return 'Clone/Compatible'
-      case 0x00: return 'No Communication'
-      case 0xFF: return 'No Communication'
-      default: return `Unknown (0x${version.toString(16).toUpperCase()})`
-    }
+  const getRfidChipName = (ic: number | null) => {
+    if (ic === null || ic === undefined) return 'N/A'
+    if (ic === 0x32) return 'PN532'
+    if (ic === 0x00) return 'No Communication'
+    return `Unknown (0x${ic.toString(16).toUpperCase()})`
   }
 
   const getChipModelName = (model: number | null) => {
@@ -716,8 +710,8 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Type:</span>
-              <span className="font-medium text-xs">{getRfidVersionName(health.rfid_version)}</span>
+              <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Chip:</span>
+              <span className="font-medium text-xs">{getRfidChipName(health.rfid_ic)}</span>
             </div>
             {health.rfid_communication_ok !== null && (
               <div className="flex justify-between">
@@ -727,18 +721,18 @@ function HealthTab({ health }: { health: DeviceHealth | null }) {
                 </span>
               </div>
             )}
-            {health.rfid_antenna_on !== null && (
+            {health.rfid_sam_configured !== null && (
               <div className="flex justify-between">
-                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Antenna:</span>
-                <span className={`font-medium ${health.rfid_antenna_on ? 'text-green-700' : 'text-red-700'}`}>
-                  {health.rfid_antenna_on ? '✓ ON' : '✗ OFF'}
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>SAM:</span>
+                <span className={`font-medium ${health.rfid_sam_configured ? 'text-green-700' : 'text-red-700'}`}>
+                  {health.rfid_sam_configured ? '✓ Configured' : '✗ Not Configured'}
                 </span>
               </div>
             )}
-            {health.rfid_antenna_gain !== null && (
+            {health.rfid_firmware_major !== null && health.rfid_firmware_minor !== null && (
               <div className="flex justify-between">
-                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Gain:</span>
-                <span className="font-medium">0x{health.rfid_antenna_gain.toString(16).toUpperCase().padStart(2, '0')}</span>
+                <span className={health.rfid_healthy ? 'text-green-600' : 'text-red-600'}>Firmware:</span>
+                <span className="font-medium">{health.rfid_firmware_major}.{health.rfid_firmware_minor}</span>
               </div>
             )}
             <div className="flex justify-between">

@@ -15,20 +15,18 @@ struct TaskInfo {
 
 // Health status that can be reported to the cloud
 struct DeviceHealth {
-    // RFID Reader Health
+    // RFID Reader Health (PN532)
     uint32_t rfidReinitCount;           // How many times the reader was fully reinitialized
     uint32_t rfidSoftResetCount;        // How many times soft reset was performed
     uint32_t lastSuccessfulReadMs;       // Millis of last successful card read
     uint32_t lastHealthCheckMs;          // Millis of last health check
     bool rfidHealthy;                    // Current health status of RFID reader
-    byte rfidVersion;                    // MFRC522 version register value
-    bool rfidAntennaOn;                  // Is antenna enabled
-    uint8_t rfidAntennaGain;             // Antenna gain (0x00-0x70)
-    uint8_t rfidTxControl;                // Transmit control register
-    uint8_t rfidStatus1;                 // Status register 1
-    uint8_t rfidStatus2;                 // Status register 2
-    uint8_t rfidComIrq;                  // Communication IRQ register
-    bool rfidCommunicationOk;            // Can communicate with reader
+    bool rfidCommunicationOk;            // Can communicate with reader over SPI
+    bool rfidSamConfigured;              // SAM configuration succeeded
+    uint8_t rfidIC;                      // PN532 IC code (expect 0x32)
+    uint8_t rfidFirmwareMaj;             // PN532 firmware major version
+    uint8_t rfidFirmwareMin;             // PN532 firmware minor version
+    uint8_t rfidFirmwareSupport;         // PN532 supported features bitmask
     uint32_t rfidPollCount;              // Total number of polls
     
     // System Health
@@ -88,7 +86,7 @@ public:
     static void reportRfidError(const char* error);
     static void reportRfidReinit();
     static void reportRfidSoftReset();
-    static void setRfidVersion(byte version);
+    static void setRfidIC(uint8_t ic);
     static void setRfidHealthy(bool healthy);
     
     // System health

@@ -187,26 +187,21 @@ static void collectWatchdogInfo() {
     health.watchdogTimeoutMs = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;  // Convert to ms
 }
 
-// Collect comprehensive RFID health information
+// Collect comprehensive RFID health information (PN532)
 static void collectRfidHealth() {
     RFIDHealth rfidHealth = RFIDManager::getHealth();
-    
-    health.rfidCommunicationOk = rfidHealth.communicationOk;
-    health.rfidAntennaOn = rfidHealth.antennaOn;
-    health.rfidAntennaGain = rfidHealth.antennaGain;
-    health.rfidTxControl = rfidHealth.txControl;
-    health.rfidStatus1 = rfidHealth.status1;
-    health.rfidStatus2 = rfidHealth.status2;
-    health.rfidComIrq = rfidHealth.comIrq;
-    health.rfidPollCount = rfidHealth.pollCount;
-    
-    // Update version if communication is OK
-    if (rfidHealth.communicationOk) {
-        health.rfidVersion = rfidHealth.version;
-    }
-    
-    // Overall health is OK if communication works and antenna is on
-    health.rfidHealthy = rfidHealth.communicationOk && rfidHealth.antennaOn;
+
+    health.rfidCommunicationOk  = rfidHealth.communicationOk;
+    health.rfidSamConfigured    = rfidHealth.samConfigured;
+    health.rfidIC               = rfidHealth.ic;
+    health.rfidFirmwareMaj      = rfidHealth.firmwareVersionMaj;
+    health.rfidFirmwareMin      = rfidHealth.firmwareVersionMin;
+    health.rfidFirmwareSupport  = rfidHealth.firmwareSupport;
+    health.rfidPollCount        = rfidHealth.pollCount;
+    health.rfidReinitCount      = rfidHealth.reinitCount;
+
+    // Overall health: communication OK and SAM configured
+    health.rfidHealthy = rfidHealth.communicationOk && rfidHealth.samConfigured;
 }
 
 // ========== PUBLIC IMPLEMENTATION ==========
@@ -286,8 +281,8 @@ void HealthMonitor::reportRfidReinit() {
     pushHealthToSupabase();
 }
 
-void HealthMonitor::setRfidVersion(byte version) {
-    health.rfidVersion = version;
+void HealthMonitor::setRfidIC(uint8_t ic) {
+    health.rfidIC = ic;
 }
 
 void HealthMonitor::setRfidHealthy(bool healthy) {
@@ -418,18 +413,16 @@ void HealthMonitor::pushHealthToSupabase() {
     json += "],";
     json += "\"task_count\":" + String(health.taskCount) + ",";
     
-    // RFID Health
+    // RFID Health (PN532)
     json += "\"rfid_healthy\":" + String(health.rfidHealthy ? "true" : "false") + ",";
-    json += "\"rfid_version\":" + String(health.rfidVersion) + ",";
+    json += "\"rfid_communication_ok\":" + String(health.rfidCommunicationOk ? "true" : "false") + ",";
+    json += "\"rfid_sam_configured\":" + String(health.rfidSamConfigured ? "true" : "false") + ",";
+    json += "\"rfid_ic\":" + String(health.rfidIC) + ",";
+    json += "\"rfid_firmware_major\":" + String(health.rfidFirmwareMaj) + ",";
+    json += "\"rfid_firmware_minor\":" + String(health.rfidFirmwareMin) + ",";
+    json += "\"rfid_firmware_support\":" + String(health.rfidFirmwareSupport) + ",";
     json += "\"rfid_reinit_count\":" + String(health.rfidReinitCount) + ",";
     json += "\"rfid_soft_reset_count\":" + String(health.rfidSoftResetCount) + ",";
-    json += "\"rfid_communication_ok\":" + String(health.rfidCommunicationOk ? "true" : "false") + ",";
-    json += "\"rfid_antenna_on\":" + String(health.rfidAntennaOn ? "true" : "false") + ",";
-    json += "\"rfid_antenna_gain\":" + String(health.rfidAntennaGain) + ",";
-    json += "\"rfid_tx_control\":" + String(health.rfidTxControl) + ",";
-    json += "\"rfid_status1\":" + String(health.rfidStatus1) + ",";
-    json += "\"rfid_status2\":" + String(health.rfidStatus2) + ",";
-    json += "\"rfid_com_irq\":" + String(health.rfidComIrq) + ",";
     json += "\"rfid_poll_count\":" + String(health.rfidPollCount) + ",";
     
     // Handle nullable string fields
