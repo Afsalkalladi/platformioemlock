@@ -1,6 +1,7 @@
 #include "nvs_store.h"
 #include <nvs.h>
 #include <functional>
+#include <ctype.h>
 
 // Namespaces
 static const char* NS_WL = "wl";
@@ -8,6 +9,20 @@ static const char* NS_BL = "bl";
 static const char* NS_PD = "pd";
 
 static const uint8_t MAX_UIDS = 10;
+
+// ================= UID NORMALISATION =================
+// NVS keys are case-sensitive.  RFID reader emits uppercase
+// (%02X) but UIDs arriving from Supabase may be lowercase.
+// Normalise ONCE at the boundary so every lookup matches.
+static char _normBuf[16];   // longest UID = 14 hex + null
+static const char* normalizeUID(const char* uid) {
+    size_t i = 0;
+    for (; uid[i] && i < sizeof(_normBuf) - 1; i++) {
+        _normBuf[i] = toupper((unsigned char)uid[i]);
+    }
+    _normBuf[i] = '\0';
+    return _normBuf;
+}
 
 Preferences NVSStore::wl;
 Preferences NVSStore::bl;
@@ -51,27 +66,29 @@ void NVSStore::init() {
 // ================= QUERIES =================
 
 bool NVSStore::isWhitelisted(const char* uid) {
-    return wl.isKey(uid);
+    return wl.isKey(normalizeUID(uid));
 }
 
 bool NVSStore::isBlacklisted(const char* uid) {
-    return bl.isKey(uid);
+    return bl.isKey(normalizeUID(uid));
 }
 
 bool NVSStore::isPending(const char* uid) {
-    return pd.isKey(uid);
+    return pd.isKey(normalizeUID(uid));
 }
 
 UIDState NVSStore::getState(const char* uid) {
-    if (isWhitelisted(uid)) return UIDState::WHITELIST;
-    if (isBlacklisted(uid)) return UIDState::BLACKLIST;
-    if (isPending(uid))     return UIDState::PENDING;
+    const char* norm = normalizeUID(uid);
+    if (wl.isKey(norm)) return UIDState::WHITELIST;
+    if (bl.isKey(norm)) return UIDState::BLACKLIST;
+    if (pd.isKey(norm)) return UIDState::PENDING;
     return UIDState::NONE;
 }
 
 // ================= MUTATIONS =================
 
 bool NVSStore::addExclusive(Preferences& target, const char* uid, bool bypassLimit) {
+    const char* norm = normalizeUID(uid);
 
     if (!bypassLimit && getCount(target) >= MAX_UIDS) {
         Serial.println("[NVS] Capacity reached");
@@ -79,22 +96,22 @@ bool NVSStore::addExclusive(Preferences& target, const char* uid, bool bypassLim
     }
 
     // Remove from other namespaces silently
-    if (&target != &wl && wl.isKey(uid)) {
-        wl.remove(uid);
+    if (&target != &wl && wl.isKey(norm)) {
+        wl.remove(norm);
         decCount(wl);
     }
-    if (&target != &bl && bl.isKey(uid)) {
-        bl.remove(uid);
+    if (&target != &bl && bl.isKey(norm)) {
+        bl.remove(norm);
         decCount(bl);
     }
-    if (&target != &pd && pd.isKey(uid)) {
-        pd.remove(uid);
+    if (&target != &pd && pd.isKey(norm)) {
+        pd.remove(norm);
         decCount(pd);
     }
 
     // Add to target if not present
-    if (!target.isKey(uid)) {
-        target.putUChar(uid, 1);
+    if (!target.isKey(norm)) {
+        target.putUChar(norm, 1);
         incCount(target);
     }
 
@@ -110,11 +127,12 @@ bool NVSStore::addToBlacklist(const char* uid) {
 }
 
 bool NVSStore::addToPending(const char* uid) {
+    const char* norm = normalizeUID(uid);
 
-    Serial.printf("[NVS] addToPending called for: %s\n", uid);
+    Serial.printf("[NVS] addToPending called for: %s (normalised: %s)\n", uid, norm);
     
-    if (getState(uid) != UIDState::NONE) {
-        Serial.printf("[NVS] UID %s already exists in some list\n", uid);
+    if (getState(norm) != UIDState::NONE) {
+        Serial.printf("[NVS] UID %s already exists in some list\n", norm);
         return false;
     }
 
@@ -123,24 +141,25 @@ bool NVSStore::addToPending(const char* uid) {
         return false;
     }
 
-    pd.putUChar(uid, 1);
+    pd.putUChar(norm, 1);
     incCount(pd);
-    Serial.printf("[NVS] Added %s to pending, new count=%d\n", uid, getCount(pd));
+    Serial.printf("[NVS] Added %s to pending, new count=%d\n", norm, getCount(pd));
     return true;
 }
 
 void NVSStore::removeUID(const char* uid) {
+    const char* norm = normalizeUID(uid);
 
-    if (wl.isKey(uid)) {
-        wl.remove(uid);
+    if (wl.isKey(norm)) {
+        wl.remove(norm);
         decCount(wl);
     }
-    if (bl.isKey(uid)) {
-        bl.remove(uid);
+    if (bl.isKey(norm)) {
+        bl.remove(norm);
         decCount(bl);
     }
-    if (pd.isKey(uid)) {
-        pd.remove(uid);
+    if (pd.isKey(norm)) {
+        pd.remove(norm);
         decCount(pd);
     }
 }

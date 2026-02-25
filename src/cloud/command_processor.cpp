@@ -127,6 +127,14 @@ void CommandProcessor::update() {
     String typeStr = String(type);
     typeStr.trim();
 
+    // Normalize UID to uppercase so NVS keys always match the RFID reader
+    String uidNorm;
+    if (uid && strlen(uid) > 0) {
+        uidNorm = String(uid);
+        uidNorm.toUpperCase();
+        uid = uidNorm.c_str();
+    }
+
     // -------- DUPLICATE GUARD --------
     if (lastAckedCmd == cmdId) {
         Serial.println("[CMD] Duplicate ignored: " + String(cmdId));
@@ -440,14 +448,18 @@ void CommandProcessor::update() {
 
             // Apply whitelist from server
             for (JsonVariant v : wl) {
-                NVSStore::addToWhitelist(v.as<const char*>());
-                Serial.printf("[SYNC] WL %s\n", v.as<const char*>());
+                String uidUpper = String(v.as<const char*>());
+                uidUpper.toUpperCase();
+                NVSStore::addToWhitelist(uidUpper.c_str());
+                Serial.printf("[SYNC] WL %s\n", uidUpper.c_str());
             }
 
             // Apply blacklist from server
             for (JsonVariant v : bl) {
-                NVSStore::addToBlacklist(v.as<const char*>());
-                Serial.printf("[SYNC] BL %s\n", v.as<const char*>());
+                String uidUpper = String(v.as<const char*>());
+                uidUpper.toUpperCase();
+                NVSStore::addToBlacklist(uidUpper.c_str());
+                Serial.printf("[SYNC] BL %s\n", uidUpper.c_str());
             }
         } // Mutex released here
 

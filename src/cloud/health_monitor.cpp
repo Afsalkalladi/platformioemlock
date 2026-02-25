@@ -230,11 +230,10 @@ void HealthMonitor::collectAll() {
 }
 
 void HealthMonitor::update() {
-    collectAll();
-
     uint32_t now = millis();
     if (now - lastCloudSyncMs >= CLOUD_SYNC_INTERVAL_MS) {
         lastCloudSyncMs = now;
+        collectAll();          // only collect right before pushing
         pushHealthToSupabase();
     }
 }

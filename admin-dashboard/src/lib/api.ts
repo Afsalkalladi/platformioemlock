@@ -14,17 +14,37 @@ export async function fetchDevices(): Promise<DeviceSummary[]> {
 
 // Query #2: Device summary
 export async function fetchDeviceDetail(deviceId: string): Promise<DeviceDetail | null> {
-  const { data, error } = await supabase
-    .from('device_commands')
-    .select('status, created_at')
-    .eq('device_id', deviceId)
+  // Use device_health.updated_at as the primary "last seen" indicator
+  // because it's pushed every 60s while the device is alive.
+  // Fall back to the most recent device_command created_at.
+  const [healthRes, cmdRes] = await Promise.all([
+    supabase
+      .from('device_health')
+      .select('updated_at')
+      .eq('device_id', deviceId)
+      .single(),
+    supabase
+      .from('device_commands')
+      .select('status, created_at')
+      .eq('device_id', deviceId)
+      .order('created_at', { ascending: false }),
+  ])
 
-  if (error) throw error
-  if (!data || data.length === 0) return null
+  const cmds = cmdRes.data
+  const healthRow = healthRes.data
 
-  const pending = data.filter(c => c.status === 'PENDING').length
-  const completed = data.filter(c => c.status === 'DONE').length
-  const lastSeen = data[0].created_at
+  if ((!cmds || cmds.length === 0) && !healthRow) return null
+
+  const pending = cmds ? cmds.filter(c => c.status === 'PENDING').length : 0
+  const completed = cmds ? cmds.filter(c => c.status === 'DONE').length : 0
+
+  // Pick the most recent timestamp between health heartbeat and latest command
+  const cmdTs = cmds && cmds.length > 0 ? cmds[0].created_at : null
+  const healthTs = healthRow ? healthRow.updated_at : null
+  let lastSeen = cmdTs || ''
+  if (healthTs && (!cmdTs || new Date(healthTs) > new Date(cmdTs))) {
+    lastSeen = healthTs
+  }
 
   return {
     device_id: deviceId,
@@ -149,7 +169,9 @@ export async function sendCommand(
     status: 'PENDING',
   }
 
-  if (uid) insertData.uid = uid
+  // Normalise UID to uppercase – RFID reader emits uppercase hex (%02X)
+  // and NVS keys are case-sensitive, so every UID must match that format.
+  if (uid) insertData.uid = uid.toUpperCase()
   if (payload) insertData.payload = payload
 
   const { data, error } = await supabase
@@ -189,8 +211,8 @@ export async function sendSyncUIDs(
   blacklist: string[]
 ): Promise<Command> {
   return sendCommand(deviceId, 'SYNC_UIDS', undefined, {
-    whitelist,
-    blacklist,
+    whitelist: whitelist.map(u => u.toUpperCase()),
+    blacklist: blacklist.map(u => u.toUpperCase()),
   })
 }
 

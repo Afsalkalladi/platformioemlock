@@ -52,8 +52,10 @@ static bool performHealthCheck() {
     uint32_t ver = pn532->getFirmwareVersion();
     if (!ver) {
         Serial.println("[RFID] Health check FAILED - no communication with PN532");
+        samOk = false;
         return false;
     }
+    samOk = true;
     return true;
 }
 
@@ -229,8 +231,14 @@ RFIDHealth RFIDManager::getHealth() {
         return h;
     }
 
-    uint32_t ver = pn532->getFirmwareVersion();
-    h.communicationOk    = (ver != 0);
+    // IMPORTANT: Do NOT call pn532->getFirmwareVersion() here!
+    // getHealth() is called from Core 0 (HealthMonitor), while poll()
+    // runs on Core 1 using the same SPI bus.  Issuing SPI commands from
+    // both cores simultaneously corrupts the bus, causing:
+    //   1) Health check always reports "Failed"
+    //   2) Card reads return garbage UIDs → phantom pending entries
+    // Instead, return the cached values that poll() already maintains.
+    h.communicationOk    = samOk;  // updated by init() and reinitReader()
     h.samConfigured      = samOk;
     h.ic                 = cachedIC;
     h.firmwareVersionMaj = cachedVerMaj;
