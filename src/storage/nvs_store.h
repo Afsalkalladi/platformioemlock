@@ -23,8 +23,8 @@ public:
     static UIDState getState(const char* uid);
 
     // Mutations (mutually exclusive)
-    static bool addToWhitelist(const char* uid);
-    static bool addToBlacklist(const char* uid);
+    static bool addToWhitelist(const char* uid, bool bypassLimit = false);
+    static bool addToBlacklist(const char* uid, bool bypassLimit = false);
     static bool addToPending(const char* uid);
 
     static void removeUID(const char* uid);

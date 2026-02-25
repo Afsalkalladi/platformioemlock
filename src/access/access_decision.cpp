@@ -18,29 +18,35 @@ AccessResult AccessDecision::evaluate(const String& uid) {
 
     // 1️⃣ INVALID UID → HARD DENY
     if (!isValidUID(uid)) {
+        Serial.printf("[ACCESS] UID '%s' failed validation (len=%d)\n", uid.c_str(), uid.length());
         return AccessResult::INVALID;
     }
 
     const char* c_uid = uid.c_str();
 
     // CRITICAL: Lock mutex to prevent race condition with Core 0 accessing NVS
-    ThreadSafe::Guard guard(100);  // 100ms timeout
+    // Use 300ms timeout to survive brief SYNC_UIDS operations
+    ThreadSafe::Guard guard(300);
     if (!guard.isAcquired()) {
-        Serial.println("[ACCESS] Failed to acquire mutex, defaulting to PENDING");
+        Serial.printf("[ACCESS] MUTEX TIMEOUT for UID %s - cannot evaluate, denying\n", c_uid);
         return AccessResult::PENDING_REPEAT;
     }
 
     // 2️⃣ BLACKLIST → DENY
     if (NVSStore::isBlacklisted(c_uid)) {
+        Serial.printf("[ACCESS] UID %s -> BLACKLISTED\n", c_uid);
         return AccessResult::DENY_BLACKLIST;
     }
 
     // 3️⃣ WHITELIST → GRANT
     if (NVSStore::isWhitelisted(c_uid)) {
+        Serial.printf("[ACCESS] UID %s -> WHITELISTED (WL count=%d)\n", c_uid, NVSStore::whitelistCount());
         return AccessResult::GRANT;
     }
 
     // 4️⃣ UNKNOWN → ADD TO PENDING (ONCE)
+    Serial.printf("[ACCESS] UID %s NOT in WL(%d) or BL(%d), adding to PENDING\n",
+                  c_uid, NVSStore::whitelistCount(), NVSStore::blacklistCount());
     if (NVSStore::addToPending(c_uid)) {
         return AccessResult::PENDING_NEW;
     }

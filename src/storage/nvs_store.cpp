@@ -8,20 +8,25 @@ static const char* NS_WL = "wl";
 static const char* NS_BL = "bl";
 static const char* NS_PD = "pd";
 
-static const uint8_t MAX_UIDS = 10;
+static const uint8_t MAX_UIDS = 50;
 
 // ================= UID NORMALISATION =================
 // NVS keys are case-sensitive.  RFID reader emits uppercase
-// (%02X) but UIDs arriving from Supabase may be lowercase.
-// Normalise ONCE at the boundary so every lookup matches.
-static char _normBuf[16];   // longest UID = 14 hex + null
-static const char* normalizeUID(const char* uid) {
-    size_t i = 0;
-    for (; uid[i] && i < sizeof(_normBuf) - 1; i++) {
-        _normBuf[i] = toupper((unsigned char)uid[i]);
+// (%02X) but UIDs arriving from Supabase may be lowercase or
+// contain separators (colons, dashes, spaces).  Normalise by:
+//   1. Stripping all non-hex characters
+//   2. Converting to uppercase
+// Each caller provides its own buffer to avoid a shared static
+// buffer that could be corrupted by nested / cross-core calls.
+static void normalizeUID(const char* uid, char* out, size_t outSize) {
+    size_t j = 0;
+    for (size_t i = 0; uid[i] && j < outSize - 1; i++) {
+        if (isxdigit((unsigned char)uid[i])) {
+            out[j++] = toupper((unsigned char)uid[i]);
+        }
+        // Skip non-hex characters (colons, dashes, spaces, etc.)
     }
-    _normBuf[i] = '\0';
-    return _normBuf;
+    out[j] = '\0';
 }
 
 Preferences NVSStore::wl;
@@ -66,19 +71,28 @@ void NVSStore::init() {
 // ================= QUERIES =================
 
 bool NVSStore::isWhitelisted(const char* uid) {
-    return wl.isKey(normalizeUID(uid));
+    char norm[16];
+    normalizeUID(uid, norm, sizeof(norm));
+    bool found = wl.isKey(norm);
+    Serial.printf("[NVS] isWhitelisted(%s) norm=%s -> %s\n", uid, norm, found ? "YES" : "NO");
+    return found;
 }
 
 bool NVSStore::isBlacklisted(const char* uid) {
-    return bl.isKey(normalizeUID(uid));
+    char norm[16];
+    normalizeUID(uid, norm, sizeof(norm));
+    return bl.isKey(norm);
 }
 
 bool NVSStore::isPending(const char* uid) {
-    return pd.isKey(normalizeUID(uid));
+    char norm[16];
+    normalizeUID(uid, norm, sizeof(norm));
+    return pd.isKey(norm);
 }
 
 UIDState NVSStore::getState(const char* uid) {
-    const char* norm = normalizeUID(uid);
+    char norm[16];
+    normalizeUID(uid, norm, sizeof(norm));
     if (wl.isKey(norm)) return UIDState::WHITELIST;
     if (bl.isKey(norm)) return UIDState::BLACKLIST;
     if (pd.isKey(norm)) return UIDState::PENDING;
@@ -88,10 +102,12 @@ UIDState NVSStore::getState(const char* uid) {
 // ================= MUTATIONS =================
 
 bool NVSStore::addExclusive(Preferences& target, const char* uid, bool bypassLimit) {
-    const char* norm = normalizeUID(uid);
+    char norm[16];
+    normalizeUID(uid, norm, sizeof(norm));
 
     if (!bypassLimit && getCount(target) >= MAX_UIDS) {
-        Serial.println("[NVS] Capacity reached");
+        Serial.printf("[NVS] Capacity reached (%d/%d), cannot add %s\n",
+                      getCount(target), MAX_UIDS, norm);
         return false;
     }
 
@@ -111,28 +127,43 @@ bool NVSStore::addExclusive(Preferences& target, const char* uid, bool bypassLim
 
     // Add to target if not present
     if (!target.isKey(norm)) {
-        target.putUChar(norm, 1);
+        size_t written = target.putUChar(norm, 1);
+        if (written == 0) {
+            Serial.printf("[NVS] ERROR: putUChar FAILED for key %s (NVS full?)\n", norm);
+            return false;
+        }
         incCount(target);
+        Serial.printf("[NVS] Stored key=%s count=%d\n", norm, getCount(target));
     }
 
     return true;
 }
 
-bool NVSStore::addToWhitelist(const char* uid) {
-    return addExclusive(wl, uid, false);
+bool NVSStore::addToWhitelist(const char* uid, bool bypassLimit) {
+    return addExclusive(wl, uid, bypassLimit);
 }
 
-bool NVSStore::addToBlacklist(const char* uid) {
-    return addExclusive(bl, uid, false);
+bool NVSStore::addToBlacklist(const char* uid, bool bypassLimit) {
+    return addExclusive(bl, uid, bypassLimit);
 }
 
 bool NVSStore::addToPending(const char* uid) {
-    const char* norm = normalizeUID(uid);
+    char norm[16];
+    normalizeUID(uid, norm, sizeof(norm));
 
     Serial.printf("[NVS] addToPending called for: %s (normalised: %s)\n", uid, norm);
-    
-    if (getState(norm) != UIDState::NONE) {
-        Serial.printf("[NVS] UID %s already exists in some list\n", norm);
+
+    // Check each namespace with the SAME local buffer (no re-normalization needed)
+    if (wl.isKey(norm)) {
+        Serial.printf("[NVS] UID %s already in WHITELIST, not adding to pending\n", norm);
+        return false;
+    }
+    if (bl.isKey(norm)) {
+        Serial.printf("[NVS] UID %s already in BLACKLIST, not adding to pending\n", norm);
+        return false;
+    }
+    if (pd.isKey(norm)) {
+        Serial.printf("[NVS] UID %s already in PENDING\n", norm);
         return false;
     }
 
@@ -141,14 +172,19 @@ bool NVSStore::addToPending(const char* uid) {
         return false;
     }
 
-    pd.putUChar(norm, 1);
+    size_t written = pd.putUChar(norm, 1);
+    if (written == 0) {
+        Serial.printf("[NVS] ERROR: putUChar FAILED for pending key %s\n", norm);
+        return false;
+    }
     incCount(pd);
     Serial.printf("[NVS] Added %s to pending, new count=%d\n", norm, getCount(pd));
     return true;
 }
 
 void NVSStore::removeUID(const char* uid) {
-    const char* norm = normalizeUID(uid);
+    char norm[16];
+    normalizeUID(uid, norm, sizeof(norm));
 
     if (wl.isKey(norm)) {
         wl.remove(norm);

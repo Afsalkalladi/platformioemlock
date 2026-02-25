@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "../storage/nvs_store.h"
+#include "../core/thread_safe.h"
 
 // ==================== STATIC STATE ====================
 static DeviceHealth health = {};
@@ -174,9 +175,16 @@ static void collectStorageInfo() {
     health.littlefsFreeBytes  = (health.littlefsTotalBytes > usedSize)
                                     ? health.littlefsTotalBytes - usedSize : 0;
 
-    health.nvsUsedEntries = NVSStore::whitelistCount()
-                          + NVSStore::blacklistCount()
-                          + NVSStore::pendingCount();
+    // Read NVS counts under mutex to prevent race with Core 1 NVS writes
+    {
+        ThreadSafe::Guard guard(50);
+        if (guard.isAcquired()) {
+            health.nvsUsedEntries = NVSStore::whitelistCount()
+                                  + NVSStore::blacklistCount()
+                                  + NVSStore::pendingCount();
+        }
+        // If mutex not acquired, keep previous value (stale but safe)
+    }
 }
 
 static void collectWatchdogInfo() {

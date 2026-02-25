@@ -109,8 +109,15 @@ void CommandProcessor::update() {
     http.end();
     if (payload.length() < 5) return;
 
-    StaticJsonDocument<1024> doc;
-    if (deserializeJson(doc, payload)) return;
+    // Use DynamicJsonDocument to handle large SYNC_UIDS payloads
+    // (50 UIDs * ~20 bytes each + command envelope ≈ 2KB+)
+    DynamicJsonDocument doc(4096);
+    DeserializationError jsonErr = deserializeJson(doc, payload);
+    if (jsonErr) {
+        Serial.printf("[CMD] JSON parse error: %s (payload len=%d)\n", 
+                      jsonErr.c_str(), payload.length());
+        return;
+    }
 
     JsonArray arr = doc.as<JsonArray>();
     if (arr.size() == 0) return;
@@ -433,7 +440,7 @@ void CommandProcessor::update() {
 
         // Lock mutex for all NVS operations, release before logging
         {
-            ThreadSafe::Guard guard(500);  // Longer timeout for bulk operations
+            ThreadSafe::Guard guard(1000);  // Generous timeout for bulk operations
             if (!guard.isAcquired()) {
                 ackCommand(cmdId, "MUTEX_TIMEOUT");
                 lastAckedCmd = cmdId;
@@ -446,26 +453,50 @@ void CommandProcessor::update() {
             NVSStore::clearBlacklist();
             NVSStore::clearPending();
 
+            Serial.printf("[SYNC] Payload: %d WL, %d BL UIDs to apply\n", wl.size(), bl.size());
+
             // Apply whitelist from server
+            uint8_t wlOk = 0, wlFail = 0;
             for (JsonVariant v : wl) {
-                String uidUpper = String(v.as<const char*>());
+                const char* raw = v.as<const char*>();
+                if (!raw || strlen(raw) == 0) { wlFail++; continue; }
+                String uidUpper = String(raw);
                 uidUpper.toUpperCase();
-                NVSStore::addToWhitelist(uidUpper.c_str());
-                Serial.printf("[SYNC] WL %s\n", uidUpper.c_str());
+                bool ok = NVSStore::addToWhitelist(uidUpper.c_str(), true);  // bypassLimit for sync
+                if (ok) wlOk++; else wlFail++;
+                Serial.printf("[SYNC] WL %s -> %s\n", uidUpper.c_str(), ok ? "OK" : "FAIL");
             }
 
             // Apply blacklist from server
+            uint8_t blOk = 0, blFail = 0;
             for (JsonVariant v : bl) {
-                String uidUpper = String(v.as<const char*>());
+                const char* raw = v.as<const char*>();
+                if (!raw || strlen(raw) == 0) { blFail++; continue; }
+                String uidUpper = String(raw);
                 uidUpper.toUpperCase();
-                NVSStore::addToBlacklist(uidUpper.c_str());
-                Serial.printf("[SYNC] BL %s\n", uidUpper.c_str());
+                bool ok = NVSStore::addToBlacklist(uidUpper.c_str(), true);  // bypassLimit for sync
+                if (ok) blOk++; else blFail++;
+                Serial.printf("[SYNC] BL %s -> %s\n", uidUpper.c_str(), ok ? "OK" : "FAIL");
+            }
+
+            Serial.printf("[SYNC] Applied WL: %d ok / %d fail, BL: %d ok / %d fail\n",
+                          wlOk, wlFail, blOk, blFail);
+
+            // Verify stored counts match expected
+            uint8_t storedWL = NVSStore::whitelistCount();
+            uint8_t storedBL = NVSStore::blacklistCount();
+            if (storedWL != wlOk || storedBL != blOk) {
+                Serial.printf("[SYNC] WARNING: Count mismatch! Stored WL=%d (expected %d), BL=%d (expected %d)\n",
+                              storedWL, wlOk, storedBL, blOk);
             }
         } // Mutex released here
 
         // Log after mutex is released
+        String syncResult = "SYNC_UIDS_OK WL:" + String(NVSStore::whitelistCount()) +
+                            " BL:" + String(NVSStore::blacklistCount());
+        Serial.println("[SYNC] Final counts - " + syncResult);
         LogStore::log(LogEvent::UID_SYNC, "-", "cloud");
-        ackCommand(cmdId, "SYNC_UIDS_OK");
+        ackCommand(cmdId, syncResult);
 
         lastAckedCmd = cmdId;
         NVSStore::setLastCommandId(cmdId);
