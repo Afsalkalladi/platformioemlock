@@ -29,12 +29,19 @@ function fmtTime(ts: string | null): string {
   return ts.slice(11, 16)
 }
 
+// Format a Date as YYYY-MM-DD in LOCAL time.
+// (Never use toISOString() here - it converts to UTC and shifts IST back a day.)
+function localDayStr(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function daysBetween(from: string, to: string): string[] {
   const out: string[] = []
   const d = new Date(from + 'T00:00:00')
   const end = new Date(to + 'T00:00:00')
   while (d <= end && out.length < 62) {
-    out.push(d.toISOString().slice(0, 10))
+    out.push(localDayStr(d))
     d.setDate(d.getDate() + 1)
   }
   return out.reverse() // newest first

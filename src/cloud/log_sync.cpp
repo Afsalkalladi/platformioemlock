@@ -182,6 +182,15 @@ void LogSync::update() {
         checkScheduledSync();
     }
 
+    // Periodic auto-sync every 2 minutes so attendance/logs in the dashboard
+    // stay fresh without pressing "Sync Logs". Cheap: if there are no local
+    // logs, performCloudSync() returns without any network request.
+    static uint32_t lastPeriodicSync = 0;
+    if (millis() - lastPeriodicSync >= 120000) {
+        lastPeriodicSync = millis();
+        performCloudSync();
+    }
+
     // Handle manual sync (for serial debugging)
     if (!syncing) return;
 
