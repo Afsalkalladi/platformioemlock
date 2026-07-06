@@ -135,7 +135,11 @@ static void checkScheduledSync() {
     // Check if it's midnight (00:00 - 00:05 window) and sync not done today
     if (!scheduledSyncDone && currentHour == 0 && currentMin < 5) {
         Serial.println("[AUTO_SYNC] Midnight sync triggered!");
-        
+
+        // Daily housekeeping: purge local log files older than 30 days
+        // (covers devices that run for months without a reboot)
+        LogStore::cleanupOldLogs();
+
         if (performCloudSync()) {
             scheduledSyncDone = true;
             Serial.println("[AUTO_SYNC] Scheduled sync completed successfully");

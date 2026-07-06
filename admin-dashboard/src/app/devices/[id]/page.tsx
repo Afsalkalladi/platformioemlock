@@ -225,7 +225,7 @@ function DeviceDetailInner() {
               onAction={loadAll}
             />
           )}
-          {activeTab === 'logs' && <LogsTab logs={logs} uidNames={uidNames} />}
+          {activeTab === 'logs' && <LogsTab logs={logs} uidNames={uidNames} commands={commands} />}
           {activeTab === 'commands' && <CommandsTab commands={commands} />}
           {activeTab === 'health' && <HealthTab health={health} />}
         </div>
@@ -425,7 +425,33 @@ function UIDListTab({
   )
 }
 
-function LogsTab({ logs, uidNames }: { logs: AccessLog[]; uidNames: Record<string, string> }) {
+function LogsTab({
+  logs,
+  uidNames,
+  commands,
+}: {
+  logs: AccessLog[]
+  uidNames: Record<string, string>
+  commands: Command[]
+}) {
+  // For REMOTE events the device doesn't know WHO pressed unlock - but the
+  // matching REMOTE_UNLOCK command does (issued_by = unlock-key label or
+  // "admin-dashboard"). Match by closest timestamp within 3 minutes.
+  const remoteActorFor = (log: AccessLog): string | null => {
+    if (log.event_type !== 'REMOTE') return null
+    const logTs = new Date(log.logged_at).getTime()
+    let best: { diff: number; actor: string } | null = null
+    for (const cmd of commands) {
+      if (cmd.type !== 'REMOTE_UNLOCK' || !cmd.issued_by) continue
+      const cmdTs = new Date(cmd.acked_at ?? cmd.created_at).getTime()
+      const diff = Math.abs(cmdTs - logTs)
+      if (diff <= 3 * 60 * 1000 && (!best || diff < best.diff)) {
+        best = { diff, actor: cmd.issued_by }
+      }
+    }
+    return best?.actor ?? null
+  }
+
   if (logs.length === 0) {
     return (
       <div className="p-8 text-center text-gray-500">
@@ -472,11 +498,19 @@ function LogsTab({ logs, uidNames }: { logs: AccessLog[]; uidNames: Record<strin
                 {new Date(log.logged_at).toLocaleString()}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <span className="font-mono">{log.uid}</span>
-                {uidNames[log.uid] && (
-                  <span className="ml-2 text-blue-600 font-medium">
-                    ({uidNames[log.uid]})
+                {log.event_type === 'REMOTE' ? (
+                  <span className="text-blue-600 font-medium">
+                    🔑 {remoteActorFor(log) ?? 'unknown key'}
                   </span>
+                ) : (
+                  <>
+                    <span className="font-mono">{log.uid}</span>
+                    {uidNames[log.uid] && (
+                      <span className="ml-2 text-blue-600 font-medium">
+                        ({uidNames[log.uid]})
+                      </span>
+                    )}
+                  </>
                 )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap">

@@ -90,7 +90,11 @@ begin
     raise notice 'set_acked_at() not found - skipped';
   end;
   begin
-    execute 'alter function public.sync_device_uids_from_commands() set search_path = public';
+    -- SECURITY DEFINER is required: this trigger fires when the DEVICE acks a
+    -- UID command, and it writes to device_uids, which the device user cannot
+    -- touch under RLS. Definer + pinned search_path lets the trigger do its
+    -- job without widening the device's own permissions.
+    execute 'alter function public.sync_device_uids_from_commands() security definer set search_path = public';
   exception when undefined_function then
     raise notice 'sync_device_uids_from_commands() not found - skipped';
   end;
@@ -251,6 +255,27 @@ revoke all on all tables    in schema public from anon;
 revoke all on all sequences in schema public from anon;
 alter default privileges in schema public revoke all on tables    from anon;
 alter default privileges in schema public revoke all on sequences from anon;
+
+-- ---------------------------------------------------------------------------
+-- 9. RETENTION: purge cloud logs older than 6 months (daily at 00:30)
+-- ---------------------------------------------------------------------------
+
+create extension if not exists pg_cron;
+
+do $$
+begin
+  perform cron.schedule(
+    'purge-old-logs',
+    '30 0 * * *',
+    $job$
+      delete from public.access_logs     where logged_at  < now() - interval '6 months';
+      delete from public.device_logs     where created_at < now() - interval '6 months';
+      delete from public.device_commands where created_at < now() - interval '6 months';
+    $job$
+  );
+exception when others then
+  raise notice 'pg_cron schedule skipped: %', sqlerrm;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- NOTE on "Unused Index" linter items: harmless. Revisit after attendance has
