@@ -108,6 +108,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         type: 'REMOTE_UNLOCK',
         status: 'PENDING',
         issued_by: keyRow.label,
+        // Firmware skips unlocks older than 2 min (stale-queue safety)
+        payload: { epoch: Math.floor(Date.now() / 1000) },
       })
       .select()
       .single()

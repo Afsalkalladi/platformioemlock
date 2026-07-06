@@ -187,7 +187,10 @@ export async function sendCommand(
 
 // Query #6: Remote unlock
 export async function sendRemoteUnlock(deviceId: string): Promise<Command> {
-  return sendCommand(deviceId, 'REMOTE_UNLOCK')
+  // epoch lets the firmware skip stale unlocks (>2 min old) after downtime
+  return sendCommand(deviceId, 'REMOTE_UNLOCK', undefined, {
+    epoch: Math.floor(Date.now() / 1000),
+  })
 }
 
 // Query #7: Whitelist UID

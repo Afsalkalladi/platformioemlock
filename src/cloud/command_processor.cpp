@@ -160,8 +160,13 @@ void CommandProcessor::update() {
     }
 
     // -------- DUPLICATE GUARD --------
+    // Already executed but still PENDING in the DB (the ack never landed,
+    // e.g. network/auth hiccup). Re-ack it so it stops blocking the queue.
     if (lastAckedCmd == cmdId) {
-        Serial.println("[CMD] Duplicate ignored: " + String(cmdId));
+        Serial.println("[CMD] Duplicate found - re-acking: " + String(cmdId));
+        if (ackCommand(cmdId, "REACKED_AFTER_LOST_ACK")) {
+            pollNowFlag = true;   // process whatever was queued behind it
+        }
         return;
     }
 
@@ -179,6 +184,22 @@ void CommandProcessor::update() {
     // -------- EXECUTION --------
 
     if (typeStr == "REMOTE_UNLOCK") {
+
+        // Safety: never execute an unlock that was issued more than 2 minutes
+        // ago (stale queue after downtime must not pop the door open).
+        long issuedEpoch = cmd["payload"]["epoch"] | 0L;
+        if (issuedEpoch > 0) {
+            time_t nowT = time(nullptr);
+            if (nowT > 1600000000 && (long)nowT - issuedEpoch > 120) {
+                Serial.printf("[CMD] REMOTE_UNLOCK is %lds old - skipped\n",
+                              (long)nowT - issuedEpoch);
+                if (ackCommand(cmdId, "EXPIRED_SKIPPED")) {
+                    lastAckedCmd = cmdId;
+                    NVSStore::setLastCommandId(cmdId);
+                }
+                return;
+            }
+        }
 
         Event e{};
         e.type = EventType::REMOTE_UNLOCK;
