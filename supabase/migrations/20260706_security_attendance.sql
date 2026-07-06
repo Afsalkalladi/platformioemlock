@@ -179,6 +179,12 @@ create policy device_insert_own_device_logs on public.device_logs
   with check (device_id = public.current_device_id());
 
 -- device_health: upsert its own health row
+-- (SELECT is required too: PostgREST upsert = INSERT ... ON CONFLICT DO
+--  UPDATE, and the conflict path must be able to read the existing row)
+create policy device_select_own_health on public.device_health
+  for select to authenticated
+  using (device_id = public.current_device_id());
+
 create policy device_insert_own_health on public.device_health
   for insert to authenticated
   with check (device_id = public.current_device_id());
