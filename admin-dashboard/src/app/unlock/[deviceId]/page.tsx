@@ -5,17 +5,37 @@ import { useParams } from 'next/navigation'
 
 type UnlockState = 'idle' | 'unlocking' | 'success' | 'error'
 
+const KEY_STORAGE = 'em_lock_unlock_key'
+
 export default function QuickUnlockPage() {
   const params = useParams()
   const deviceId = params.deviceId as string
-  
+
   const [state, setState] = useState<UnlockState>('idle')
   const [message, setMessage] = useState('')
   const [lastUnlock, setLastUnlock] = useState<Date | null>(null)
+  const [unlockKey, setUnlockKey] = useState<string | null>(null)
+  const [keyInput, setKeyInput] = useState('')
+  const [keyLoaded, setKeyLoaded] = useState(false)
+
+  // Load key: URL ?key= takes priority (and is saved), else localStorage.
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlKey = urlParams.get('key')
+    if (urlKey) {
+      localStorage.setItem(KEY_STORAGE, urlKey)
+      setUnlockKey(urlKey)
+    } else {
+      setUnlockKey(localStorage.getItem(KEY_STORAGE))
+    }
+    setKeyLoaded(true)
+  }, [])
 
   const handleUnlock = useCallback(async () => {
     if (state === 'unlocking') return
-    
+    const key = unlockKey ?? localStorage.getItem(KEY_STORAGE)
+    if (!key) return
+
     setState('unlocking')
     setMessage('Sending unlock command...')
 
@@ -24,6 +44,7 @@ export default function QuickUnlockPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
         },
       })
 
@@ -33,45 +54,51 @@ export default function QuickUnlockPage() {
         setState('success')
         setMessage('Door unlocked!')
         setLastUnlock(new Date())
-        
-        // Vibrate on success (mobile)
-        if (navigator.vibrate) {
-          navigator.vibrate([100, 50, 100])
-        }
-        
-        // Reset after 3 seconds
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100])
         setTimeout(() => {
           setState('idle')
           setMessage('')
         }, 3000)
       } else {
+        // Invalid/revoked key -> clear it so the user is asked again
+        if (response.status === 401) {
+          localStorage.removeItem(KEY_STORAGE)
+          setUnlockKey(null)
+        }
         setState('error')
         setMessage(data.error || 'Failed to unlock')
-        
-        // Reset after 3 seconds
         setTimeout(() => {
           setState('idle')
           setMessage('')
         }, 3000)
       }
-    } catch (err) {
+    } catch {
       setState('error')
       setMessage('Network error - check connection')
-      
       setTimeout(() => {
         setState('idle')
         setMessage('')
       }, 3000)
     }
-  }, [deviceId, state])
+  }, [deviceId, state, unlockKey])
 
-  // Auto-unlock on page load if URL has ?auto=true
+  // Auto-unlock on page load if URL has ?auto=true (only once key is known)
   useEffect(() => {
+    if (!keyLoaded || !unlockKey) return
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get('auto') === 'true') {
       handleUnlock()
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [keyLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function saveKey(e: React.FormEvent) {
+    e.preventDefault()
+    const k = keyInput.trim()
+    if (!k) return
+    localStorage.setItem(KEY_STORAGE, k)
+    setUnlockKey(k)
+    setKeyInput('')
+  }
 
   const getButtonColor = () => {
     switch (state) {
@@ -116,11 +143,42 @@ export default function QuickUnlockPage() {
     }
   }
 
+  // ---- First-time setup: ask for the unlock key (saved on this phone) ----
+  if (keyLoaded && !unlockKey) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6">
+        <div className="text-white text-2xl font-bold mb-2">🔑 One-time setup</div>
+        <p className="text-gray-400 text-sm text-center mb-6 max-w-xs">
+          Enter the unlock key you received from the admin. It is saved on this
+          phone — you won&apos;t be asked again.
+        </p>
+        <form onSubmit={saveKey} className="w-full max-w-xs">
+          <input
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="ulk_..."
+            autoCapitalize="none"
+            autoCorrect="off"
+            className="w-full rounded-lg px-4 py-3 mb-3 font-mono text-sm bg-gray-800 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={!keyInput.trim()}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-medium py-3 rounded-lg"
+          >
+            Save key
+          </button>
+        </form>
+        <div className="mt-8 text-gray-500 text-xs">Device: {deviceId}</div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4 select-none">
       {/* Status bar safe area */}
       <div className="fixed top-0 left-0 right-0 h-12 bg-gray-900" />
-      
+
       {/* Main unlock button */}
       <button
         onClick={handleUnlock}
@@ -146,17 +204,19 @@ export default function QuickUnlockPage() {
       </button>
 
       {/* Device ID */}
-      <div className="mt-8 text-gray-400 text-sm">
-        Device: {deviceId}
-      </div>
+      <div className="mt-8 text-gray-400 text-sm">Device: {deviceId}</div>
 
       {/* Message */}
       {message && (
-        <div className={`mt-4 px-4 py-2 rounded-lg ${
-          state === 'success' ? 'bg-green-900 text-green-200' :
-          state === 'error' ? 'bg-red-900 text-red-200' :
-          'bg-gray-800 text-gray-200'
-        }`}>
+        <div
+          className={`mt-4 px-4 py-2 rounded-lg ${
+            state === 'success'
+              ? 'bg-green-900 text-green-200'
+              : state === 'error'
+              ? 'bg-red-900 text-red-200'
+              : 'bg-gray-800 text-gray-200'
+          }`}
+        >
           {message}
         </div>
       )}
@@ -168,10 +228,16 @@ export default function QuickUnlockPage() {
         </div>
       )}
 
-      {/* PWA Install hint */}
-      <div className="fixed bottom-8 left-0 right-0 text-center text-gray-500 text-xs px-4">
-        Add to Home Screen for quick access
-      </div>
+      {/* Change key */}
+      <button
+        onClick={() => {
+          localStorage.removeItem(KEY_STORAGE)
+          setUnlockKey(null)
+        }}
+        className="fixed bottom-8 text-gray-600 text-xs underline"
+      >
+        Change unlock key
+      </button>
     </div>
   )
 }

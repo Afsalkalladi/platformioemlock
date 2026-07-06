@@ -6,6 +6,7 @@
 #include <HTTPClient.h>
 #include "../storage/log_store.h"
 #include "supabase_config.h"
+#include "device_auth.h"
 
 // ========== STATE ==========
 static bool syncing = false;
@@ -24,6 +25,11 @@ static String deviceId;
 static bool performCloudSync() {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[AUTO_SYNC] WiFi not connected, skipping sync");
+        return false;
+    }
+
+    if (!DeviceAuth::isReady()) {
+        Serial.println("[AUTO_SYNC] Device auth not ready, skipping sync");
         return false;
     }
 
@@ -81,13 +87,14 @@ static bool performCloudSync() {
     String url = String(SUPABASE_URL) + "/rest/v1/access_logs";
 
     http.begin(url);
-    http.addHeader("apikey", SUPABASE_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+    DeviceAuth::addHeaders(http);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Prefer", "return=minimal");
 
     int code = http.POST(body);
     http.end();
+
+    if (code == 401) DeviceAuth::forceRefresh();
 
     if (code == 201 || code == 200) {
         Serial.printf("[AUTO_SYNC] Upload OK - %d logs\n", count);

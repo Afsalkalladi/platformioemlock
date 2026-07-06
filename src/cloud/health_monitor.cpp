@@ -1,5 +1,6 @@
 #include "health_monitor.h"
 #include "supabase_config.h"
+#include "device_auth.h"
 #include "wifi_manager.h"
 #include "../access/rfid_manager.h"
 #include "../config/config.h"
@@ -358,17 +359,23 @@ void HealthMonitor::pushHealthToSupabase() {
     json += "}";
 
     // ---- HTTP POST (upsert) ----
+    if (!DeviceAuth::isReady()) {
+        Serial.println("[HEALTH] Device auth not ready, skipping cloud sync");
+        return;
+    }
+
     HTTPClient http;
     String url = String(SUPABASE_URL) + "/rest/v1/device_health";
 
     http.begin(url);
-    http.addHeader("apikey",        SUPABASE_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+    DeviceAuth::addHeaders(http);
     http.addHeader("Content-Type",  "application/json");
     http.addHeader("Prefer",        "resolution=merge-duplicates");
 
     int code = http.POST(json);
     http.end();
+
+    if (code == 401) DeviceAuth::forceRefresh();
 
     if (code == 200 || code == 201) {
         Serial.println("[HEALTH] Cloud sync OK");

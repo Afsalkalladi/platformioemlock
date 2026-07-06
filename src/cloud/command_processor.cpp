@@ -1,5 +1,6 @@
 #include "command_processor.h"
 #include "supabase_config.h"
+#include "device_auth.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include "../core/event_queue.h"
@@ -11,6 +12,18 @@
 
 static String deviceId;
 static String lastAckedCmd; // runtime cache
+
+// Set by RealtimeClient (push) or after executing a command (queue drain).
+// Both run on the same core/loop, so a plain bool is fine.
+static bool pollNowFlag = false;
+
+void CommandProcessor::pollNow() {
+    pollNowFlag = true;
+}
+
+// Fallback poll interval. Realtime push makes unlock near-instant; this slow
+// poll only self-heals if the websocket is down.
+static const uint32_t POLL_FALLBACK_MS = 15000;
 
 
 // ---------- JSON ESCAPE (REQUIRED) ----------
@@ -40,9 +53,9 @@ static bool ackCommand(const String& cmdId, const String& result) {
         "/rest/v1/device_commands?id=eq." + cmdId;
 
     http.begin(url);
-    http.addHeader("apikey", SUPABASE_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+    DeviceAuth::addHeaders(http);
     http.addHeader("Content-Type", "application/json");
+    http.addHeader("Prefer", "return=minimal");
 
     String body =
         "{\"status\":\"DONE\",\"result\":\"" + jsonEscape(result) + "\"}";
@@ -51,6 +64,8 @@ static bool ackCommand(const String& cmdId, const String& result) {
 
     int code = http.PATCH(body);
     http.end();
+
+    if (code == 401) DeviceAuth::forceRefresh();
 
     if (code == 200 || code == 204) {
         Serial.printf("[CMD] ACK OK %s\n", cmdId.c_str());
@@ -80,9 +95,11 @@ void CommandProcessor::init() {
 
 void CommandProcessor::update() {
     if (WiFi.status() != WL_CONNECTED) return;
+    if (!DeviceAuth::isReady()) return;
 
     static uint32_t lastPoll = 0;
-    if (millis() - lastPoll < 3000) return;
+    if (!pollNowFlag && millis() - lastPoll < POLL_FALLBACK_MS) return;
+    pollNowFlag = false;
     lastPoll = millis();
 
     HTTPClient http;
@@ -95,12 +112,12 @@ void CommandProcessor::update() {
         "&limit=1";
 
     http.begin(url);
-    http.addHeader("apikey", SUPABASE_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+    DeviceAuth::addHeaders(http);
     http.addHeader("Accept", "application/json");
 
     int code = http.GET();
     if (code != 200) {
+        if (code == 401) DeviceAuth::forceRefresh();
         http.end();
         return;
     }
@@ -154,6 +171,10 @@ void CommandProcessor::update() {
         type,
         uid ? uid : "-"
     );
+
+    // A command arrived - after handling it, poll again right away in case
+    // more are queued behind it (limit=1 per poll).
+    pollNowFlag = true;
 
     // -------- EXECUTION --------
 
@@ -386,8 +407,7 @@ void CommandProcessor::update() {
             String url = String(SUPABASE_URL) + "/rest/v1/access_logs";
 
             post.begin(url);
-            post.addHeader("apikey", SUPABASE_KEY);
-            post.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+            DeviceAuth::addHeaders(post);
             post.addHeader("Content-Type", "application/json");
             post.addHeader("Prefer", "return=minimal");
 

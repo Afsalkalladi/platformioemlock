@@ -23,11 +23,20 @@ import {
   updateUIDName,
 } from '@/lib/api'
 import type { DeviceDetail, DeviceUID, PendingUID, Command, AccessLog, DeviceHealth } from '@/lib/types'
+import Shell from '@/components/Shell'
 
 
 type Tab = 'pending' | 'whitelist' | 'blacklist' | 'commands' | 'logs' | 'health'
 
 export default function DeviceDetailPage() {
+  return (
+    <Shell>
+      <DeviceDetailInner />
+    </Shell>
+  )
+}
+
+function DeviceDetailInner() {
   const params = useParams()
   const deviceId = params.id as string
 

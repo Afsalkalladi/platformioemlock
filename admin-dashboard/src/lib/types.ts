@@ -21,6 +21,7 @@ export interface Command {
   result: string | null
   created_at: string
   acked_at: string | null
+  issued_by: string | null  // 'admin-dashboard' or an unlock-key label
 }
 
 export interface DeviceUID {
@@ -30,6 +31,32 @@ export interface DeviceUID {
   name: string | null  // Human-readable name for the UID
   state: UIDState
   updated_at: string
+  employee_id: string | null  // Linked employee (a person can have many cards)
+}
+
+export interface Employee {
+  id: string
+  name: string
+  active: boolean
+  created_at: string
+}
+
+export interface UnlockKey {
+  id: string
+  label: string
+  created_at: string
+  revoked_at: string | null
+  last_used_at: string | null
+}
+
+export interface AttendanceRow {
+  employee_id: string
+  employee_name: string
+  day: string        // YYYY-MM-DD (IST)
+  check_in: string   // IST wall-clock timestamp
+  check_out: string  // IST wall-clock timestamp
+  late: boolean      // check-in after 10:00
+  scan_count: number
 }
 
 export interface PendingUID {

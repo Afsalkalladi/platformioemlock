@@ -1,146 +1,148 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'crypto'
+
+// This route runs server-side on Vercel and uses the SERVICE ROLE key only.
+// It is the ONLY way to unlock without an admin session, and it requires a
+// valid unlock key issued from the admin dashboard (Unlock Keys page).
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-// Simple token-based auth for quick unlock (optional security layer)
-// Set QUICK_UNLOCK_TOKEN in your environment variables
-const QUICK_UNLOCK_TOKEN = process.env.QUICK_UNLOCK_TOKEN
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 interface RouteParams {
   params: Promise<{ deviceId: string }>
 }
 
-// CORS headers for iOS Shortcuts compatibility
+// CORS headers for iOS Shortcuts / Android widget compatibility
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-// Ensure device exists in devices table
-async function ensureDeviceExists(deviceId: string): Promise<void> {
-  const { error } = await supabase
-    .from('devices')
-    .insert({ device_id: deviceId })
-    .select()
-    .single()
-
-  // Ignore duplicate key errors (device already exists)
-  if (error && !error.message.includes('duplicate')) {
-    throw error
+function textOrJson(
+  wantsText: boolean,
+  status: number,
+  text: string,
+  json: Record<string, unknown>
+) {
+  if (wantsText) {
+    return new NextResponse(text, {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
+    })
   }
+  return NextResponse.json(json, { status, headers: corsHeaders })
 }
 
-// Handle CORS preflight
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders })
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
+  const wantsText =
+    request.nextUrl.searchParams.get('format') === 'text' ||
+    (request.headers.get('accept') ?? '').includes('text/plain')
+
   try {
     const { deviceId } = await params
-    
-    // Check if client wants plain text response (for iOS Shortcuts)
-    const wantsText = request.nextUrl.searchParams.get('format') === 'text' ||
-                      request.headers.get('accept')?.includes('text/plain')
-    
-    // Optional: Verify token if set
-    if (QUICK_UNLOCK_TOKEN) {
-      const authHeader = request.headers.get('authorization')
-      const token = authHeader?.replace('Bearer ', '') || 
-                    request.nextUrl.searchParams.get('token')
-      
-      if (token !== QUICK_UNLOCK_TOKEN) {
-        if (wantsText) {
-          return new NextResponse('ERROR: Unauthorized', { 
-            status: 401, 
-            headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
-          })
-        }
-        return NextResponse.json(
-          { success: false, error: 'Unauthorized' },
-          { status: 401, headers: corsHeaders }
-        )
-      }
+
+    if (!serviceRoleKey) {
+      console.error('SUPABASE_SERVICE_ROLE_KEY is not set')
+      return textOrJson(wantsText, 500, 'ERROR: Server misconfigured', {
+        success: false,
+        error: 'Server misconfigured',
+      })
     }
+    const supabase = createClient(supabaseUrl, serviceRoleKey)
 
     if (!deviceId) {
-      if (wantsText) {
-        return new NextResponse('ERROR: Device ID required', { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
-        })
-      }
-      return NextResponse.json(
-        { success: false, error: 'Device ID required' },
-        { status: 400, headers: corsHeaders }
-      )
+      return textOrJson(wantsText, 400, 'ERROR: Device ID required', {
+        success: false,
+        error: 'Device ID required',
+      })
     }
 
-    // Ensure device exists first (required by foreign key)
-    await ensureDeviceExists(deviceId)
+    // ---- REQUIRED: unlock key (from admin dashboard -> Unlock Keys) ----
+    const authHeader = request.headers.get('authorization')
+    const rawKey =
+      authHeader?.replace(/^Bearer\s+/i, '') ||
+      request.nextUrl.searchParams.get('key') ||
+      ''
 
-    // Insert REMOTE_UNLOCK command
+    if (!rawKey) {
+      return textOrJson(wantsText, 401, 'ERROR: Unlock key required', {
+        success: false,
+        error: 'Unlock key required. Ask the admin for a key and add it to your widget.',
+      })
+    }
+
+    const keyHash = createHash('sha256').update(rawKey).digest('hex')
+
+    const { data: keyRow, error: keyErr } = await supabase
+      .from('unlock_keys')
+      .select('id, label, revoked_at')
+      .eq('key_hash', keyHash)
+      .maybeSingle()
+
+    if (keyErr) {
+      console.error('Key lookup error:', keyErr)
+      return textOrJson(wantsText, 500, 'ERROR: Key lookup failed', {
+        success: false,
+        error: 'Key lookup failed',
+      })
+    }
+
+    if (!keyRow || keyRow.revoked_at) {
+      return textOrJson(wantsText, 401, 'ERROR: Invalid or revoked key', {
+        success: false,
+        error: 'Invalid or revoked unlock key',
+      })
+    }
+
+    // ---- Insert the unlock command, recording WHO did it ----
     const { data, error } = await supabase
       .from('device_commands')
       .insert({
         device_id: deviceId,
         type: 'REMOTE_UNLOCK',
         status: 'PENDING',
+        issued_by: keyRow.label,
       })
       .select()
       .single()
 
     if (error) {
       console.error('Supabase error:', error)
-      if (wantsText) {
-        return new NextResponse('ERROR: ' + error.message, { 
-          status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
-        })
-      }
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500, headers: corsHeaders }
-      )
-    }
-
-    // Return plain text for iOS Shortcuts compatibility
-    if (wantsText) {
-      return new NextResponse('OK: Door unlock command sent', { 
-        status: 200, 
-        headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
+      return textOrJson(wantsText, 500, 'ERROR: ' + error.message, {
+        success: false,
+        error: error.message,
       })
     }
 
-    return NextResponse.json({
+    // Track key usage (best effort)
+    await supabase
+      .from('unlock_keys')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', keyRow.id)
+
+    return textOrJson(wantsText, 200, 'OK: Door unlock command sent', {
       success: true,
       message: 'Unlock command sent',
       command_id: data.id,
       device_id: deviceId,
-    }, { headers: corsHeaders })
+      unlocked_by: keyRow.label,
+    })
   } catch (err) {
     console.error('Unlock API error:', err)
-    
-    const wantsText = request.nextUrl.searchParams.get('format') === 'text'
-    if (wantsText) {
-      return new NextResponse('ERROR: Internal server error', { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'text/plain' } 
-      })
-    }
-    return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500, headers: corsHeaders }
-    )
+    return textOrJson(wantsText, 500, 'ERROR: Internal server error', {
+      success: false,
+      error: 'Internal server error',
+    })
   }
 }
 
-// Also support GET for simple shortcuts (iOS Shortcuts, etc.)
+// Keep GET support for simple shortcut setups (key goes in ?key=...)
 export async function GET(request: NextRequest, { params }: RouteParams) {
   return POST(request, { params })
 }

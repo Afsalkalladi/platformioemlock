@@ -4,8 +4,17 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { fetchDevices, fetchAllDeviceHealthTimestamps } from '@/lib/api'
 import type { DeviceSummary } from '@/lib/types'
+import Shell from '@/components/Shell'
 
 export default function DevicesPage() {
+  return (
+    <Shell>
+      <DevicesInner />
+    </Shell>
+  )
+}
+
+function DevicesInner() {
   const [devices, setDevices] = useState<DeviceSummary[]>([])
   const [healthTimestamps, setHealthTimestamps] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)

@@ -26,6 +26,8 @@
 #include "cloud/wifi_manager.h"
 #include "cloud/command_processor.h"
 #include "cloud/health_monitor.h"
+#include "cloud/device_auth.h"
+#include "cloud/realtime_client.h"
 #include <WiFi.h>
 // =====================================================
 // CORE 1 TASK
@@ -135,12 +137,18 @@ void loop() {
     static bool cloudInitDone = false;
 
     if (!cloudInitDone && WiFiManager::getState() == WiFiState::READY) {
+        DeviceAuth::init();
         CommandProcessor::init();
         HealthMonitor::init();
+        RealtimeClient::init();
         cloudInitDone = true;
     }
-    
+
     // Update cloud services
+    if (cloudInitDone) {
+        DeviceAuth::update();       // keeps the device JWT fresh
+        RealtimeClient::update();   // websocket push -> instant unlock
+    }
     LogSync::update();
     CommandProcessor::update();
     HealthMonitor::update();
