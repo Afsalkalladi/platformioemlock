@@ -11,6 +11,33 @@ import {
   assignCardToEmployee,
 } from '@/lib/api'
 import type { Employee, DeviceUID } from '@/lib/types'
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorBanner,
+  PageBody,
+  PageHeader,
+  PageLoader,
+  Stat,
+  TableWrap,
+  Td,
+  Th,
+  Tr,
+  cx,
+} from '@/components/ui'
+import {
+  IconPlus,
+  IconUsers,
+  IconKey,
+  IconPencil,
+  IconTrash,
+  IconLink,
+  IconCheck,
+  IconBan,
+} from '@/components/icons'
 
 export default function EmployeesPage() {
   return (
@@ -24,6 +51,7 @@ function EmployeesInner() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [cards, setCards] = useState<DeviceUID[]>([])
   const [newName, setNewName] = useState('')
+  const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -47,9 +75,14 @@ function EmployeesInner() {
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!newName.trim()) return
-    await createEmployee(newName.trim())
-    setNewName('')
-    await load()
+    setSaving(true)
+    try {
+      await createEmployee(newName.trim())
+      setNewName('')
+      await load()
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleToggleActive(emp: Employee) {
@@ -66,7 +99,8 @@ function EmployeesInner() {
   }
 
   async function handleDelete(emp: Employee) {
-    if (!confirm(`Delete ${emp.name}? Their cards stay whitelisted but become unassigned.`)) return
+    if (!confirm(`Delete ${emp.name}? Their cards stay whitelisted but become unassigned.`))
+      return
     await deleteEmployee(emp.id)
     await load()
   }
@@ -78,155 +112,269 @@ function EmployeesInner() {
 
   const cardsFor = (empId: string) => cards.filter((c) => c.employee_id === empId)
   const whitelistCards = cards.filter((c) => c.state === 'WHITELIST')
+  const unassigned = whitelistCards.filter((c) => !c.employee_id).length
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading…</div>
+    return (
+      <PageBody width="narrow">
+        <PageLoader label="Loading employees…" />
+      </PageBody>
+    )
+  }
+
+  const rowActions = (emp: Employee) => (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={() => handleRename(emp)}
+        title="Rename"
+        className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-subtle transition hover:bg-elevated hover:text-ink"
+      >
+        <IconPencil className="h-4 w-4" />
+      </button>
+      <button
+        onClick={() => handleToggleActive(emp)}
+        title={emp.active ? 'Deactivate' : 'Activate'}
+        className={cx(
+          'focus-ring grid h-8 w-8 place-items-center rounded-lg transition',
+          emp.active
+            ? 'text-subtle hover:bg-warn-soft hover:text-warn'
+            : 'text-subtle hover:bg-ok-soft hover:text-ok',
+        )}
+      >
+        {emp.active ? <IconBan className="h-4 w-4" /> : <IconCheck className="h-4 w-4" />}
+      </button>
+      <button
+        onClick={() => handleDelete(emp)}
+        title="Delete"
+        className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-subtle transition hover:bg-danger-soft hover:text-danger"
+      >
+        <IconTrash className="h-4 w-4" />
+      </button>
+    </div>
+  )
+
+  const cardChips = (empId: string) => {
+    const list = cardsFor(empId)
+    if (list.length === 0)
+      return <span className="text-xs font-medium text-warn">No cards linked</span>
+    return (
+      <div className="flex flex-wrap gap-1">
+        {list.map((c) => (
+          <span
+            key={c.id}
+            className="inline-flex rounded-md bg-brand-soft px-1.5 py-0.5 font-mono text-[11px] font-medium text-brand"
+          >
+            {c.uid}
+          </span>
+        ))}
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-2">Employees</h1>
-        <p className="text-gray-600 mb-6">
-          An employee can have multiple RFID cards — link every card they carry.
-          Attendance combines scans from all of a person&apos;s cards.
-        </p>
+    <PageBody width="narrow">
+      <PageHeader
+        eyebrow="People"
+        title="Employees"
+        subtitle="One person can carry several RFID cards — link every card they use. Attendance merges scans from all of them."
+      />
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
-          </div>
-        )}
+      {error && <ErrorBanner onRetry={load}>{error}</ErrorBanner>}
 
-        {/* Add employee */}
-        <form onSubmit={handleAdd} className="bg-white rounded-lg shadow p-4 mb-6 flex gap-3">
+      <div className="mb-6 grid grid-cols-3 gap-3 sm:gap-4">
+        <Stat
+          label="Employees"
+          value={employees.length}
+          icon={<IconUsers className="h-[18px] w-[18px]" />}
+          tone="brand"
+        />
+        <Stat
+          label="Active"
+          value={employees.filter((e) => e.active).length}
+          icon={<IconCheck className="h-[18px] w-[18px]" />}
+          tone="ok"
+        />
+        <Stat
+          label="Unassigned cards"
+          value={unassigned}
+          icon={<IconKey className="h-[18px] w-[18px]" />}
+          tone={unassigned > 0 ? 'warn' : 'neutral'}
+        />
+      </div>
+
+      {/* add employee */}
+      <Card className="mb-6 p-4 sm:p-5">
+        <form onSubmit={handleAdd} className="flex flex-col gap-3 sm:flex-row">
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Employee name"
-            className="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="field sm:flex-1"
           />
-          <button
+          <Button
             type="submit"
             disabled={!newName.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg font-medium"
+            loading={saving}
+            icon={<IconPlus className="h-4 w-4" />}
           >
             Add employee
-          </button>
+          </Button>
         </form>
+      </Card>
 
-        {/* Employee list */}
-        <div className="bg-white rounded-lg shadow overflow-hidden mb-8">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cards</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {employees.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
-                    No employees yet. Add your six above.
-                  </td>
-                </tr>
-              )}
+      {/* employee list */}
+      <Card className="mb-8 overflow-hidden">
+        <CardHeader title="Team" subtitle={`${employees.length} on record`} />
+
+        {employees.length === 0 ? (
+          <EmptyState
+            icon={<IconUsers />}
+            title="No employees yet"
+            description="Add the first person above, then link their card below."
+          />
+        ) : (
+          <>
+            {/* mobile */}
+            <ul className="divide-y divide-line md:hidden">
               {employees.map((emp) => (
-                <tr key={emp.id} className={emp.active ? '' : 'bg-gray-50 text-gray-400'}>
-                  <td className="px-6 py-4 font-medium">{emp.name}</td>
-                  <td className="px-6 py-4 text-sm">
-                    {cardsFor(emp.id).length === 0 ? (
-                      <span className="text-orange-500">No cards linked</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {cardsFor(emp.id).map((c) => (
-                          <span
-                            key={c.id}
-                            className="inline-flex px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-mono text-xs"
-                          >
-                            {c.uid}
-                          </span>
-                        ))}
+                <li key={emp.id} className={cx('p-4', !emp.active && 'opacity-60')}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-ink">{emp.name}</span>
+                        <Badge tone={emp.active ? 'ok' : 'neutral'}>
+                          {emp.active ? 'Active' : 'Inactive'}
+                        </Badge>
                       </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        emp.active ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'
-                      }`}
-                    >
-                      {emp.active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right text-sm space-x-3 whitespace-nowrap">
-                    <button onClick={() => handleRename(emp)} className="text-blue-600 hover:text-blue-900">
-                      Rename
-                    </button>
-                    <button onClick={() => handleToggleActive(emp)} className="text-gray-600 hover:text-gray-900">
-                      {emp.active ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button onClick={() => handleDelete(emp)} className="text-red-600 hover:text-red-900">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
+                      <div className="mt-2">{cardChips(emp.id)}</div>
+                    </div>
+                    {rowActions(emp)}
+                  </div>
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </ul>
 
-        {/* Card assignment */}
-        <h2 className="text-xl font-bold mb-3">Card assignment</h2>
-        <p className="text-gray-600 text-sm mb-4">
-          All whitelisted cards across devices. Assign each one to the person who carries it.
-        </p>
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Card UID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Card label</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Device</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned to</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {whitelistCards.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
-                    No whitelisted cards yet.
-                  </td>
-                </tr>
-              )}
+            {/* desktop */}
+            <div className="hidden md:block">
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th>Name</Th>
+                    <Th>Linked cards</Th>
+                    <Th>Status</Th>
+                    <Th align="right">Actions</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employees.map((emp) => (
+                    <Tr key={emp.id} className={cx(!emp.active && 'opacity-60')}>
+                      <Td className="font-medium">{emp.name}</Td>
+                      <Td>{cardChips(emp.id)}</Td>
+                      <Td>
+                        <Badge tone={emp.active ? 'ok' : 'neutral'}>
+                          {emp.active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </Td>
+                      <Td align="right">
+                        <div className="flex justify-end">{rowActions(emp)}</div>
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </TableWrap>
+            </div>
+          </>
+        )}
+      </Card>
+
+      {/* card assignment */}
+      <Card className="overflow-hidden">
+        <CardHeader
+          title="Card assignment"
+          subtitle="Every whitelisted card across devices — assign each to the person who carries it."
+          actions={
+            unassigned > 0 ? (
+              <Badge tone="warn">{unassigned} unassigned</Badge>
+            ) : (
+              <Badge tone="ok">All assigned</Badge>
+            )
+          }
+        />
+
+        {whitelistCards.length === 0 ? (
+          <EmptyState
+            icon={<IconLink />}
+            title="No whitelisted cards yet"
+            description="Approve a card on a device's Pending tab and it will show up here."
+          />
+        ) : (
+          <>
+            {/* mobile */}
+            <ul className="divide-y divide-line md:hidden">
               {whitelistCards.map((card) => (
-                <tr key={card.id}>
-                  <td className="px-6 py-4 font-mono text-sm">{card.uid}</td>
-                  <td className="px-6 py-4 text-sm">{card.name || '—'}</td>
-                  <td className="px-6 py-4 font-mono text-xs text-gray-500">{card.device_id}</td>
-                  <td className="px-6 py-4">
-                    <select
-                      value={card.employee_id ?? ''}
-                      onChange={(e) => handleAssign(card, e.target.value)}
-                      className="border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">— Unassigned —</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
+                <li key={card.id} className="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-sm font-semibold">{card.uid}</span>
+                    {!card.employee_id && <Badge tone="warn">Unassigned</Badge>}
+                  </div>
+                  <p className="mt-1 text-xs text-subtle">
+                    {card.name || 'No label'} · <span className="font-mono">{card.device_id}</span>
+                  </p>
+                  <select
+                    value={card.employee_id ?? ''}
+                    onChange={(e) => handleAssign(card, e.target.value)}
+                    className="field mt-3"
+                  >
+                    <option value="">— Unassigned —</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name}
+                      </option>
+                    ))}
+                  </select>
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+            </ul>
+
+            {/* desktop */}
+            <div className="hidden md:block">
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th>Card UID</Th>
+                    <Th>Label</Th>
+                    <Th>Device</Th>
+                    <Th align="right">Assigned to</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {whitelistCards.map((card) => (
+                    <Tr key={card.id}>
+                      <Td className="font-mono text-sm">{card.uid}</Td>
+                      <Td className="text-sm text-muted">{card.name || '—'}</Td>
+                      <Td className="font-mono text-xs text-subtle">{card.device_id}</Td>
+                      <Td align="right">
+                        <select
+                          value={card.employee_id ?? ''}
+                          onChange={(e) => handleAssign(card, e.target.value)}
+                          className="field ml-auto h-9 w-48 py-1.5"
+                        >
+                          <option value="">— Unassigned —</option>
+                          {employees.map((emp) => (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name}
+                            </option>
+                          ))}
+                        </select>
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </TableWrap>
+            </div>
+          </>
+        )}
+      </Card>
+    </PageBody>
   )
 }

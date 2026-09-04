@@ -4,21 +4,36 @@ import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import ThemeToggle from '@/components/ThemeToggle'
+import { Spinner, cx } from '@/components/ui'
+import {
+  IconChip,
+  IconUsers,
+  IconCalendar,
+  IconKey,
+  IconSync,
+  IconLock,
+  IconSignOut,
+} from '@/components/icons'
 
 const NAV = [
-  { href: '/devices', label: 'Devices' },
-  { href: '/employees', label: 'Employees' },
-  { href: '/attendance', label: 'Attendance' },
-  { href: '/keys', label: 'Unlock Keys' },
+  { href: '/devices', label: 'Devices', Icon: IconChip },
+  { href: '/employees', label: 'Employees', Icon: IconUsers },
+  { href: '/attendance', label: 'Attendance', Icon: IconCalendar },
+  { href: '/keys', label: 'Keys', Icon: IconKey },
+  { href: '/zoho', label: 'Zoho', Icon: IconSync },
 ]
 
 /**
- * Auth guard + navigation for all admin pages.
+ * Auth guard + navigation chrome for all admin pages.
  * Redirects to /login when there is no Supabase session.
  * (Real enforcement is RLS in the database; this is the UX layer.)
+ *
+ * Desktop gets a pill nav in the header; mobile gets an app-style bottom bar.
  */
 export default function Shell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false)
+  const [email, setEmail] = useState<string | null>(null)
   const router = useRouter()
   const pathname = usePathname()
 
@@ -27,6 +42,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       if (!data.session) {
         router.replace('/login')
       } else {
+        setEmail(data.session.user.email ?? null)
         setReady(true)
       }
     })
@@ -44,41 +60,108 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
-        Checking session…
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-muted">
+        <Spinner className="h-7 w-7 text-brand" />
+        <p className="text-sm">Checking session…</p>
       </div>
     )
   }
 
+  const isActive = (href: string) => pathname?.startsWith(href)
+
   return (
-    <>
-      <nav className="bg-white border-b shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
-          <div className="flex items-center gap-1">
-            <span className="font-bold text-gray-800 mr-4">🔐 EM Lock</span>
-            {NAV.map((item) => (
+    <div className="flex min-h-screen flex-col">
+      {/* ---------------- header ---------------- */}
+      <header className="sticky top-0 z-40 border-b border-line bg-surface/80 backdrop-blur-xl supports-[backdrop-filter]:bg-surface/65">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-3 px-4 sm:h-16 sm:px-6 lg:px-8">
+          {/* brand */}
+          <Link
+            href="/devices"
+            className="focus-ring flex shrink-0 items-center gap-2.5 rounded-lg py-1 pr-1"
+          >
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-brand text-white shadow-sm dark:text-[rgb(var(--c-canvas))]">
+              <IconLock className="h-[18px] w-[18px]" />
+            </span>
+            <span className="flex flex-col leading-none">
+              <span className="text-sm font-semibold tracking-tight text-ink">
+                EM Lock
+              </span>
+              <span className="mt-0.5 hidden text-[10px] font-medium uppercase tracking-widest text-subtle sm:block">
+                Access control
+              </span>
+            </span>
+          </Link>
+
+          {/* desktop nav */}
+          <nav className="ml-4 hidden items-center gap-1 md:flex">
+            {NAV.map(({ href, label, Icon }) => (
               <Link
-                key={item.href}
-                href={item.href}
-                className={`px-3 py-2 rounded-md text-sm font-medium ${
-                  pathname?.startsWith(item.href)
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
+                key={href}
+                href={href}
+                aria-current={isActive(href) ? 'page' : undefined}
+                className={cx(
+                  'focus-ring flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition',
+                  isActive(href)
+                    ? 'bg-brand-soft text-brand'
+                    : 'text-muted hover:bg-elevated hover:text-ink',
+                )}
               >
-                {item.label}
+                <Icon className="h-[17px] w-[17px]" />
+                {label}
               </Link>
             ))}
+          </nav>
+
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            {email && (
+              <span className="hidden max-w-[16ch] truncate text-xs text-subtle lg:block">
+                {email}
+              </span>
+            )}
+            <ThemeToggle />
+            <button
+              onClick={signOut}
+              title="Sign out"
+              className="focus-ring flex h-9 items-center gap-2 rounded-lg border border-line px-2.5 text-sm font-medium text-muted transition hover:border-danger/40 hover:bg-danger-soft hover:text-danger sm:px-3"
+            >
+              <IconSignOut className="h-[17px] w-[17px]" />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
           </div>
-          <button
-            onClick={signOut}
-            className="text-sm text-gray-500 hover:text-red-600 px-3 py-2"
-          >
-            Sign out
-          </button>
+        </div>
+      </header>
+
+      {/* ---------------- page ---------------- */}
+      <div className="flex-1 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
+        {children}
+      </div>
+
+      {/* ---------------- mobile bottom bar ---------------- */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
+        <div className="mx-auto grid max-w-lg grid-cols-5">
+          {NAV.map(({ href, label, Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              aria-current={isActive(href) ? 'page' : undefined}
+              className={cx(
+                'flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition',
+                isActive(href) ? 'text-brand' : 'text-subtle active:text-ink',
+              )}
+            >
+              <span
+                className={cx(
+                  'grid h-7 w-12 place-items-center rounded-full transition',
+                  isActive(href) && 'bg-brand-soft',
+                )}
+              >
+                <Icon className="h-[18px] w-[18px]" />
+              </span>
+              {label}
+            </Link>
+          ))}
         </div>
       </nav>
-      {children}
-    </>
+    </div>
   )
 }

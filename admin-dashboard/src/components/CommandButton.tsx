@@ -1,23 +1,33 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { Command, CommandStatus } from '@/lib/types'
+import type { Command } from '@/lib/types'
+import { Button, cx, type ButtonSize, type ButtonVariant } from '@/components/ui'
+import { IconCheck, IconClose } from '@/components/icons'
 
 interface CommandButtonProps {
   label: string
   onClick: () => Promise<Command>
   onComplete?: (success: boolean) => void
   className?: string
-  variant?: 'primary' | 'danger' | 'secondary'
+  variant?: ButtonVariant
+  size?: ButtonSize
+  icon?: React.ReactNode
   disabled?: boolean
 }
 
+/**
+ * Fires a device command and then polls it to completion, reflecting
+ * pending / done / failed inline on the button itself.
+ */
 export default function CommandButton({
   label,
   onClick,
   onComplete,
   className = '',
   variant = 'primary',
+  size = 'md',
+  icon,
   disabled = false,
 }: CommandButtonProps) {
   const [status, setStatus] = useState<'idle' | 'pending' | 'done' | 'failed'>('idle')
@@ -63,37 +73,34 @@ export default function CommandButton({
     }
   }
 
-  const isDisabled = disabled || status === 'pending'
+  const resultTone =
+    status === 'done'
+      ? '!bg-ok !text-white dark:!text-[rgb(var(--c-canvas))]'
+      : status === 'failed'
+        ? '!bg-danger !text-white dark:!text-[rgb(var(--c-canvas))]'
+        : ''
 
-  const variantClasses = {
-    primary: 'bg-blue-600 hover:bg-blue-700 text-white',
-    danger: 'bg-red-600 hover:bg-red-700 text-white',
-    secondary: 'bg-gray-600 hover:bg-gray-700 text-white',
-  }
-
-  const statusClasses = {
-    idle: '',
-    pending: 'opacity-50 cursor-wait',
-    done: 'bg-green-600 hover:bg-green-600',
-    failed: 'bg-red-600 hover:bg-red-600',
-  }
+  const iconSize = size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
 
   return (
-    <button
+    <Button
       onClick={handleClick}
-      disabled={isDisabled}
-      className={`
-        px-4 py-2 rounded font-medium transition-colors
-        disabled:opacity-50 disabled:cursor-not-allowed
-        ${variantClasses[variant]}
-        ${statusClasses[status]}
-        ${className}
-      `}
+      disabled={disabled}
+      loading={status === 'pending'}
+      variant={variant}
+      size={size}
+      icon={
+        status === 'done' ? (
+          <IconCheck className={iconSize} />
+        ) : status === 'failed' ? (
+          <IconClose className={iconSize} />
+        ) : (
+          icon
+        )
+      }
+      className={cx(resultTone, className)}
     >
-      {status === 'pending' && '⏳ '}
-      {status === 'done' && '✓ '}
-      {status === 'failed' && '✗ '}
-      {label}
-    </button>
+      {status === 'done' ? 'Done' : status === 'failed' ? 'Failed' : label}
+    </Button>
   )
 }

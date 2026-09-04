@@ -19,7 +19,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#111827',
+  themeColor: '#070910',
 }
 
 export default function UnlockLayout({

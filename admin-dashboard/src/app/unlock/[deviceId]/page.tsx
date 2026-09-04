@@ -37,7 +37,7 @@ export default function QuickUnlockPage() {
     if (!key) return
 
     setState('unlocking')
-    setMessage('Sending unlock command...')
+    setMessage('Sending unlock command…')
 
     try {
       const response = await fetch(`/api/unlock/${deviceId}`, {
@@ -52,7 +52,7 @@ export default function QuickUnlockPage() {
 
       if (data.success) {
         setState('success')
-        setMessage('Door unlocked!')
+        setMessage('Door unlocked')
         setLastUnlock(new Date())
         if (navigator.vibrate) navigator.vibrate([100, 50, 100])
         setTimeout(() => {
@@ -74,7 +74,7 @@ export default function QuickUnlockPage() {
       }
     } catch {
       setState('error')
-      setMessage('Network error - check connection')
+      setMessage('Network error — check connection')
       setTimeout(() => {
         setState('idle')
         setMessage('')
@@ -100,141 +100,144 @@ export default function QuickUnlockPage() {
     setKeyInput('')
   }
 
-  const getButtonColor = () => {
-    switch (state) {
-      case 'unlocking':
-        return 'bg-yellow-500'
-      case 'success':
-        return 'bg-green-500'
-      case 'error':
-        return 'bg-red-500'
-      default:
-        return 'bg-blue-600 active:bg-blue-700'
-    }
-  }
-
-  const getIcon = () => {
-    switch (state) {
-      case 'unlocking':
-        return (
-          <svg className="w-24 h-24 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-        )
-      case 'success':
-        return (
-          <svg className="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-          </svg>
-        )
-      case 'error':
-        return (
-          <svg className="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        )
-      default:
-        return (
-          <svg className="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        )
-    }
-  }
-
-  // ---- First-time setup: ask for the unlock key (saved on this phone) ----
+  /* ---------------- first-time setup ---------------- */
   if (keyLoaded && !unlockKey) {
     return (
-      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6">
-        <div className="text-white text-2xl font-bold mb-2">🔑 One-time setup</div>
-        <p className="text-gray-400 text-sm text-center mb-6 max-w-xs">
-          Enter the unlock key you received from the admin. It is saved on this
-          phone — you won&apos;t be asked again.
-        </p>
-        <form onSubmit={saveKey} className="w-full max-w-xs">
-          <input
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="ulk_..."
-            autoCapitalize="none"
-            autoCorrect="off"
-            className="w-full rounded-lg px-4 py-3 mb-3 font-mono text-sm bg-gray-800 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={!keyInput.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-medium py-3 rounded-lg"
-          >
-            Save key
-          </button>
-        </form>
-        <div className="mt-8 text-gray-500 text-xs">Device: {deviceId}</div>
+      <div className="unlock-stage flex min-h-[100dvh] flex-col items-center justify-center px-6 py-10">
+        <div className="w-full max-w-xs animate-fade-in text-center">
+          <span className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-white/10 text-white ring-1 ring-white/15">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="h-7 w-7">
+              <circle cx="8" cy="15" r="4" />
+              <path d="M10.8 12.2 20 3M17 6l2.5 2.5M14.5 8.5 17 11" />
+            </svg>
+          </span>
+          <h1 className="text-xl font-semibold text-white">One-time setup</h1>
+          <p className="mx-auto mt-2 text-sm leading-relaxed text-white/60">
+            Enter the unlock key you received from the admin. It is saved on this phone —
+            you won&apos;t be asked again.
+          </p>
+
+          <form onSubmit={saveKey} className="mt-6">
+            <input
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              placeholder="ulk_…"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-center font-mono text-sm text-white placeholder:text-white/30 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+            />
+            <button
+              type="submit"
+              disabled={!keyInput.trim()}
+              className="mt-3 w-full rounded-xl bg-white py-3 text-sm font-semibold text-slate-900 transition active:scale-[.98] disabled:opacity-30"
+            >
+              Save key
+            </button>
+          </form>
+
+          <p className="mt-8 font-mono text-xs text-white/35">{deviceId}</p>
+        </div>
       </div>
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4 select-none">
-      {/* Status bar safe area */}
-      <div className="fixed top-0 left-0 right-0 h-12 bg-gray-900" />
+  /* ---------------- unlock button ---------------- */
+  const ring =
+    state === 'unlocking'
+      ? 'from-amber-400 to-orange-500 shadow-[0_0_60px_-10px_rgba(251,191,36,.7)]'
+      : state === 'success'
+        ? 'from-emerald-400 to-green-600 shadow-[0_0_70px_-10px_rgba(52,211,153,.75)]'
+        : state === 'error'
+          ? 'from-rose-500 to-red-600 shadow-[0_0_60px_-10px_rgba(244,63,94,.7)]'
+          : 'from-indigo-500 to-blue-600 shadow-[0_0_60px_-12px_rgba(99,102,241,.75)]'
 
-      {/* Main unlock button */}
+  const caption =
+    state === 'idle'
+      ? 'Tap to unlock'
+      : state === 'unlocking'
+        ? 'Unlocking…'
+        : state === 'success'
+          ? 'Unlocked'
+          : 'Failed'
+
+  const icon = () => {
+    if (state === 'unlocking')
+      return (
+        <svg className="h-16 w-16 sm:h-20 sm:w-20 animate-spin" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" />
+          <path className="opacity-90" fill="currentColor" d="M12 2a10 10 0 0 1 10 10h-3a7 7 0 0 0-7-7V2z" />
+        </svg>
+      )
+    if (state === 'success')
+      return (
+        <svg className="h-16 w-16 sm:h-20 sm:w-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="10" width="16" height="11" rx="2.5" />
+          <path d="M8 10V7a4 4 0 0 1 7.5-2" />
+          <path d="M9.5 15.5 11.5 17.5 15 14" />
+        </svg>
+      )
+    if (state === 'error')
+      return (
+        <svg className="h-16 w-16 sm:h-20 sm:w-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7.5v5.5M12 16.5v.01" />
+        </svg>
+      )
+    return (
+      <svg className="h-16 w-16 sm:h-20 sm:w-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="10" width="16" height="11" rx="2.5" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
+      </svg>
+    )
+  }
+
+  return (
+    <div className="unlock-stage flex min-h-[100dvh] select-none flex-col items-center justify-center px-6 py-10">
+      <p className="mb-10 font-mono text-xs uppercase tracking-[0.2em] text-white/40">
+        {deviceId}
+      </p>
+
       <button
         onClick={handleUnlock}
         disabled={state === 'unlocking'}
-        className={`
-          w-64 h-64 rounded-full
-          flex flex-col items-center justify-center
-          text-white font-bold text-xl
-          transition-all duration-200
-          shadow-2xl
-          ${getButtonColor()}
-          ${state === 'idle' ? 'hover:scale-105' : ''}
-          disabled:cursor-not-allowed
-        `}
+        aria-label="Unlock door"
+        className="group relative grid h-56 w-56 place-items-center rounded-full transition-transform duration-200 active:scale-95 disabled:cursor-wait xs:h-64 xs:w-64 sm:h-72 sm:w-72"
       >
-        {getIcon()}
-        <span className="mt-4 text-lg">
-          {state === 'idle' && 'TAP TO UNLOCK'}
-          {state === 'unlocking' && 'UNLOCKING...'}
-          {state === 'success' && 'UNLOCKED!'}
-          {state === 'error' && 'FAILED'}
+        {/* halo */}
+        <span
+          className={`absolute inset-0 rounded-full bg-gradient-to-br ${ring} transition-all duration-500`}
+        />
+        <span className="absolute inset-[6px] rounded-full bg-white/10 backdrop-blur-sm" />
+        <span className="absolute inset-[6px] rounded-full ring-1 ring-inset ring-white/25" />
+        {state === 'idle' && (
+          <span className="absolute inset-0 animate-ping rounded-full bg-white/5 [animation-duration:3s]" />
+        )}
+
+        <span className="relative flex flex-col items-center text-white">
+          {icon()}
+          <span className="mt-3 text-base font-semibold tracking-wide">{caption}</span>
         </span>
       </button>
 
-      {/* Device ID */}
-      <div className="mt-8 text-gray-400 text-sm">Device: {deviceId}</div>
-
-      {/* Message */}
       {message && (
-        <div
-          className={`mt-4 px-4 py-2 rounded-lg ${
-            state === 'success'
-              ? 'bg-green-900 text-green-200'
-              : state === 'error'
-              ? 'bg-red-900 text-red-200'
-              : 'bg-gray-800 text-gray-200'
-          }`}
-        >
+        <div className="mt-8 animate-fade-in rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
           {message}
         </div>
       )}
 
-      {/* Last unlock time */}
       {lastUnlock && (
-        <div className="mt-4 text-gray-500 text-xs">
-          Last unlock: {lastUnlock.toLocaleTimeString()}
-        </div>
+        <p className="mt-4 text-xs text-white/40">
+          Last unlock {lastUnlock.toLocaleTimeString()}
+        </p>
       )}
 
-      {/* Change key */}
       <button
         onClick={() => {
           localStorage.removeItem(KEY_STORAGE)
           setUnlockKey(null)
         }}
-        className="fixed bottom-8 text-gray-600 text-xs underline"
+        className="mt-10 pb-[env(safe-area-inset-bottom)] text-xs text-white/35 underline underline-offset-4 transition active:text-white/70"
       >
         Change unlock key
       </button>

@@ -4,6 +4,24 @@ import { useState, useEffect, useCallback } from 'react'
 import Shell from '@/components/Shell'
 import { fetchAttendance, fetchEmployees } from '@/lib/api'
 import type { AttendanceRow, Employee } from '@/lib/types'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorBanner,
+  Field,
+  PageBody,
+  PageHeader,
+  Spinner,
+  TableWrap,
+  Td,
+  Th,
+  Tr,
+  cx,
+  type Tone,
+} from '@/components/ui'
+import { IconCalendar, IconUsers, IconClock } from '@/components/icons'
 
 export default function AttendancePage() {
   return (
@@ -47,6 +65,20 @@ function daysBetween(from: string, to: string): string[] {
   return out.reverse() // newest first
 }
 
+function shiftDay(day: string, delta: number): string {
+  const d = new Date(day + 'T00:00:00')
+  d.setDate(d.getDate() + delta)
+  return localDayStr(d)
+}
+
+type Status = { label: string; tone: Tone }
+
+function statusOf(row: AttendanceRow | undefined): Status {
+  if (!row) return { label: 'Absent', tone: 'danger' }
+  if (row.late) return { label: 'Late', tone: 'warn' }
+  return { label: 'Present', tone: 'ok' }
+}
+
 function AttendanceInner() {
   const today = istToday()
   const [fromDay, setFromDay] = useState(today)
@@ -81,118 +113,205 @@ function AttendanceInner() {
   const rowFor = (day: string, empId: string) =>
     rows.find((r) => r.day === day && r.employee_id === empId)
 
-  return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-2">Attendance</h1>
-        <p className="text-gray-600 mb-6">
-          Check-in = first card scan of the day (06:00–24:00 IST, any of the person&apos;s
-          cards). Check-out = last scan. Late = check-in after 10:00.
-        </p>
+  const isToday = fromDay === today && toDay === today
 
-        {/* Date range */}
-        <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap items-end gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">From</label>
+  return (
+    <PageBody width="narrow">
+      <PageHeader
+        eyebrow="Records"
+        title="Attendance"
+        subtitle="Check-in is the first card scan of the day (06:00–24:00 IST, any linked card); check-out is the last. Anything after 10:00 counts as late."
+      />
+
+      {/* date range */}
+      <Card className="mb-6 p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <Field label="From" className="sm:w-44">
             <input
               type="date"
               value={fromDay}
               max={toDay}
               onChange={(e) => setFromDay(e.target.value)}
-              className="border rounded-lg px-3 py-2"
+              className="field"
             />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
+          </Field>
+          <Field label="To" className="sm:w-44">
             <input
               type="date"
               value={toDay}
               min={fromDay}
               onChange={(e) => setToDay(e.target.value)}
-              className="border rounded-lg px-3 py-2"
+              className="field"
             />
+          </Field>
+
+          <div className="flex flex-wrap gap-2 sm:ml-auto sm:pb-0.5">
+            <Button
+              variant={isToday ? 'soft' : 'secondary'}
+              size="sm"
+              onClick={() => {
+                setFromDay(today)
+                setToDay(today)
+              }}
+            >
+              Today
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setFromDay(shiftDay(today, -6))
+                setToDay(today)
+              }}
+            >
+              Last 7 days
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setFromDay(shiftDay(today, -29))
+                setToDay(today)
+              }}
+            >
+              Last 30 days
+            </Button>
           </div>
-          <button
-            onClick={() => {
-              setFromDay(today)
-              setToDay(today)
-            }}
-            className="text-sm text-blue-600 hover:text-blue-900 font-medium pb-2.5"
-          >
-            Today
-          </button>
         </div>
+      </Card>
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
-          </div>
-        )}
+      {error && <ErrorBanner onRetry={load}>{error}</ErrorBanner>}
 
-        {loading ? (
-          <div className="text-center text-gray-500 py-12">Loading…</div>
-        ) : employees.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-            No active employees. Add them on the Employees page and link their cards.
-          </div>
-        ) : (
-          days.map((day) => (
-            <div key={day} className="mb-6">
-              <h2 className="font-semibold text-gray-700 mb-2">
-                {new Date(day + 'T00:00:00').toLocaleDateString('en-IN', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-              </h2>
-              <div className="bg-white rounded-lg shadow overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Check-in</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Check-out</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scans</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {employees.map((emp) => {
-                      const r = rowFor(day, emp.id)
-                      return (
-                        <tr key={emp.id}>
-                          <td className="px-6 py-4 font-medium">{emp.name}</td>
-                          <td className="px-6 py-4 font-mono text-sm">{r ? fmtTime(r.check_in) : '—'}</td>
-                          <td className="px-6 py-4 font-mono text-sm">
-                            {r ? (r.check_out !== r.check_in ? fmtTime(r.check_out) : '—') : '—'}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">{r?.scan_count ?? 0}</td>
-                          <td className="px-6 py-4">
-                            {!r ? (
-                              <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                                Absent
-                              </span>
-                            ) : r.late ? (
-                              <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                Late
-                              </span>
-                            ) : (
-                              <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                Present
+      {loading ? (
+        <div className="flex items-center justify-center gap-3 py-16 text-muted">
+          <Spinner className="h-6 w-6 text-brand" />
+          <span className="text-sm">Loading attendance…</span>
+        </div>
+      ) : employees.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<IconUsers />}
+            title="No active employees"
+            description="Add people on the Employees page and link their cards to start tracking attendance."
+          />
+        </Card>
+      ) : (
+        <div className="space-y-5">
+          {days.map((day) => {
+            const dayRows = employees.map((emp) => ({
+              emp,
+              row: rowFor(day, emp.id),
+            }))
+            const present = dayRows.filter((d) => d.row && !d.row.late).length
+            const late = dayRows.filter((d) => d.row?.late).length
+            const absent = dayRows.length - present - late
+
+            return (
+              <Card key={day} className="overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-5">
+                  <div className="flex items-center gap-2.5">
+                    <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-soft text-brand">
+                      <IconCalendar className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <h2 className="text-sm font-semibold tracking-tight text-ink">
+                        {new Date(day + 'T00:00:00').toLocaleDateString('en-IN', {
+                          weekday: 'long',
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </h2>
+                      <p className="text-xs text-subtle">
+                        {new Date(day + 'T00:00:00').getFullYear()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone="ok">{present} present</Badge>
+                    {late > 0 && <Badge tone="warn">{late} late</Badge>}
+                    {absent > 0 && <Badge tone="danger">{absent} absent</Badge>}
+                  </div>
+                </div>
+
+                {/* mobile */}
+                <ul className="divide-y divide-line md:hidden">
+                  {dayRows.map(({ emp, row }) => {
+                    const status = statusOf(row)
+                    return (
+                      <li
+                        key={emp.id}
+                        className="flex items-center justify-between gap-3 p-4"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-ink">{emp.name}</p>
+                          <p className="mt-1 flex items-center gap-1.5 font-mono text-xs text-muted">
+                            <IconClock className="h-3.5 w-3.5" />
+                            {row ? fmtTime(row.check_in) : '—'}
+                            <span className="text-subtle">→</span>
+                            {row && row.check_out !== row.check_in
+                              ? fmtTime(row.check_out)
+                              : '—'}
+                            {row && (
+                              <span className="ml-1 text-subtle">
+                                · {row.scan_count} scans
                               </span>
                             )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
+                          </p>
+                        </div>
+                        <Badge tone={status.tone}>{status.label}</Badge>
+                      </li>
+                    )
+                  })}
+                </ul>
+
+                {/* desktop */}
+                <div className="hidden md:block">
+                  <TableWrap>
+                    <thead>
+                      <tr>
+                        <Th>Employee</Th>
+                        <Th>Check-in</Th>
+                        <Th>Check-out</Th>
+                        <Th align="center">Scans</Th>
+                        <Th align="right">Status</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dayRows.map(({ emp, row }) => {
+                        const status = statusOf(row)
+                        return (
+                          <Tr key={emp.id}>
+                            <Td className="font-medium">{emp.name}</Td>
+                            <Td
+                              className={cx(
+                                'font-mono text-sm',
+                                row?.late && 'text-warn',
+                              )}
+                            >
+                              {row ? fmtTime(row.check_in) : '—'}
+                            </Td>
+                            <Td className="font-mono text-sm">
+                              {row && row.check_out !== row.check_in
+                                ? fmtTime(row.check_out)
+                                : '—'}
+                            </Td>
+                            <Td align="center" className="text-sm tabular-nums text-muted">
+                              {row?.scan_count ?? 0}
+                            </Td>
+                            <Td align="right">
+                              <Badge tone={status.tone}>{status.label}</Badge>
+                            </Td>
+                          </Tr>
+                        )
+                      })}
+                    </tbody>
+                  </TableWrap>
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </PageBody>
   )
 }

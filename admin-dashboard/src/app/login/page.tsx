@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import ThemeToggle from '@/components/ThemeToggle'
+import { Button, Card, ErrorBanner, Field } from '@/components/ui'
+import { IconLock } from '@/components/icons'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -34,47 +37,67 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm"
-      >
-        <h1 className="text-2xl font-bold mb-1">🔐 EM Lock Admin</h1>
-        <p className="text-gray-500 text-sm mb-6">Sign in to manage the door</p>
+    <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+        <ThemeToggle />
+      </div>
 
-        {error && (
-          <div className="bg-red-100 border border-red-300 text-red-700 text-sm px-3 py-2 rounded mb-4">
-            {error}
-          </div>
-        )}
+      <div className="w-full max-w-sm animate-fade-in">
+        <div className="mb-7 flex flex-col items-center text-center">
+          <span className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-brand text-white shadow-pop dark:text-[rgb(var(--c-canvas))]">
+            <IconLock className="h-7 w-7" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+            EM Lock Admin
+          </h1>
+          <p className="mt-1.5 text-sm text-muted">
+            Sign in to manage devices and access
+          </p>
+        </div>
 
-        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full border rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="admin@sketchrobotics.in"
-        />
+        <Card className="p-6 sm:p-7">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && <ErrorBanner>{error}</ErrorBanner>}
 
-        <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-        <input
-          type="password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full border rounded-lg px-3 py-2 mb-6 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+            <Field label="Email">
+              <input
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="field"
+                placeholder="you@company.com"
+              />
+            </Field>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg"
-        >
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
+            <Field label="Password">
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="field"
+                placeholder="••••••••"
+              />
+            </Field>
+
+            <Button
+              type="submit"
+              size="lg"
+              loading={busy}
+              className="w-full"
+            >
+              {busy ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+        </Card>
+
+        <p className="mt-6 text-center text-xs text-subtle">
+          Protected by Supabase auth · row-level security enforced server-side
+        </p>
+      </div>
     </div>
   )
 }

@@ -5,6 +5,30 @@ import Link from 'next/link'
 import { fetchDevices, fetchAllDeviceHealthTimestamps } from '@/lib/api'
 import type { DeviceSummary } from '@/lib/types'
 import Shell from '@/components/Shell'
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorBanner,
+  PageBody,
+  PageHeader,
+  PageLoader,
+  Stat,
+  StatusDot,
+  TableWrap,
+  Td,
+  Th,
+  Tr,
+  cx,
+} from '@/components/ui'
+import { relativeTime, dateTime } from '@/lib/format'
+import {
+  IconChip,
+  IconChevronRight,
+  IconClock,
+  IconInbox,
+  IconActivity,
+} from '@/components/icons'
 
 export default function DevicesPage() {
   return (
@@ -12,6 +36,11 @@ export default function DevicesPage() {
       <DevicesInner />
     </Shell>
   )
+}
+
+interface Row extends DeviceSummary {
+  lastSeen: Date
+  isOnline: boolean
 }
 
 function DevicesInner() {
@@ -44,106 +73,186 @@ function DevicesInner() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading devices...</div>
-      </div>
+      <PageBody>
+        <PageLoader label="Loading devices…" />
+      </PageBody>
     )
   }
 
+  const rows: Row[] = devices.map((device) => {
+    const lastCommand = new Date(device.last_command_at)
+    const healthAt = healthTimestamps[device.device_id]
+      ? new Date(healthTimestamps[device.device_id])
+      : null
+    // Use the most recent of command timestamp or health heartbeat
+    const lastSeen = healthAt && healthAt > lastCommand ? healthAt : lastCommand
+    return {
+      ...device,
+      lastSeen,
+      isOnline: Date.now() - lastSeen.getTime() < 120000,
+    }
+  })
+
+  const online = rows.filter((r) => r.isOnline).length
+  const pending = rows.reduce((sum, r) => sum + r.pending_commands, 0)
+
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">ESP32 RFID Admin</h1>
-          <p className="text-gray-600">Manage devices and access control</p>
+    <PageBody>
+      <PageHeader
+        eyebrow="Fleet"
+        title="Devices"
+        subtitle="Every ESP32 lock controller reporting to this dashboard. Status refreshes every 5 seconds."
+        actions={
+          <Badge tone={online === rows.length && rows.length > 0 ? 'ok' : 'neutral'} dot>
+            Live
+          </Badge>
+        }
+      />
+
+      {error && <ErrorBanner onRetry={loadDevices}>{error}</ErrorBanner>}
+
+      {rows.length > 0 && (
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          <Stat
+            label="Devices"
+            value={rows.length}
+            icon={<IconChip className="h-[18px] w-[18px]" />}
+            tone="brand"
+          />
+          <Stat
+            label="Online"
+            value={online}
+            hint={`${rows.length - online} offline`}
+            icon={<IconActivity className="h-[18px] w-[18px]" />}
+            tone={online > 0 ? 'ok' : 'neutral'}
+          />
+          <Stat
+            label="Pending cmds"
+            value={pending}
+            icon={<IconInbox className="h-[18px] w-[18px]" />}
+            tone={pending > 0 ? 'warn' : 'neutral'}
+          />
+          <Stat
+            label="Last contact"
+            value={
+              rows.length
+                ? relativeTime(
+                    new Date(Math.max(...rows.map((r) => r.lastSeen.getTime()))),
+                  )
+                : '—'
+            }
+            icon={<IconClock className="h-[18px] w-[18px]" />}
+            tone="info"
+          />
         </div>
+      )}
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<IconChip />}
+            title="No devices yet"
+            description="Devices appear here as soon as one checks in for its first command."
+          />
+        </Card>
+      ) : (
+        <>
+          {/* ---------- mobile: cards ---------- */}
+          <div className="grid gap-3 md:hidden">
+            {rows.map((device) => (
+              <Link
+                key={device.device_id}
+                href={`/devices/${device.device_id}`}
+                className="focus-ring block rounded-2xl"
+              >
+                <Card className="p-4 transition active:scale-[.99]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <StatusDot online={device.isOnline} />
+                      <span className="truncate font-mono text-sm font-semibold text-ink">
+                        {device.device_id}
+                      </span>
+                    </div>
+                    <IconChevronRight className="h-4 w-4 shrink-0 text-subtle" />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Badge tone={device.isOnline ? 'ok' : 'neutral'}>
+                      {device.isOnline ? 'Online' : 'Offline'}
+                    </Badge>
+                    {device.pending_commands > 0 && (
+                      <Badge tone="warn">{device.pending_commands} pending</Badge>
+                    )}
+                    <span className="ml-auto text-xs text-subtle">
+                      {relativeTime(device.lastSeen)}
+                    </span>
+                  </div>
+                </Card>
+              </Link>
+            ))}
           </div>
-        )}
 
-        {devices.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-            No devices found. Devices will appear after first command.
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          {/* ---------- desktop: table ---------- */}
+          <Card className="hidden overflow-hidden md:block">
+            <TableWrap>
+              <thead>
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Device ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Last Seen
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Pending Commands
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <Th>Device</Th>
+                  <Th>Status</Th>
+                  <Th>Last seen</Th>
+                  <Th align="center">Pending</Th>
+                  <Th align="right">Actions</Th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {devices.map((device) => {
-                  const lastCommand = new Date(device.last_command_at)
-                  const healthAt = healthTimestamps[device.device_id]
-                    ? new Date(healthTimestamps[device.device_id])
-                    : null
-                  // Use the most recent of command timestamp or health heartbeat
-                  const lastSeen = healthAt && healthAt > lastCommand ? healthAt : lastCommand
-                  const isOnline = Date.now() - lastSeen.getTime() < 120000
-
-                  return (
-                    <tr key={device.device_id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap font-mono text-sm">
-                        {device.device_id}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {lastSeen.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {device.pending_commands > 0 ? (
-                          <span className="text-yellow-600 font-medium">
-                            {device.pending_commands}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">0</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            isOnline
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {isOnline ? '● Online' : '○ Offline'}
+              <tbody>
+                {rows.map((device) => (
+                  <Tr key={device.device_id} className="group">
+                    <Td>
+                      <div className="flex items-center gap-2.5">
+                        <StatusDot online={device.isOnline} />
+                        <span className="font-mono text-sm font-medium">
+                          {device.device_id}
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <Link
-                          href={`/devices/${device.device_id}`}
-                          className="text-blue-600 hover:text-blue-900 font-medium"
-                        >
-                          Manage →
-                        </Link>
-                      </td>
-                    </tr>
-                  )
-                })}
+                      </div>
+                    </Td>
+                    <Td>
+                      <Badge tone={device.isOnline ? 'ok' : 'neutral'}>
+                        {device.isOnline ? 'Online' : 'Offline'}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <div className="text-sm">{relativeTime(device.lastSeen)}</div>
+                      <div className="text-xs text-subtle">
+                        {dateTime(device.lastSeen)}
+                      </div>
+                    </Td>
+                    <Td align="center">
+                      <span
+                        className={cx(
+                          'tabular-nums',
+                          device.pending_commands > 0
+                            ? 'font-semibold text-warn'
+                            : 'text-subtle',
+                        )}
+                      >
+                        {device.pending_commands}
+                      </span>
+                    </Td>
+                    <Td align="right">
+                      <Link
+                        href={`/devices/${device.device_id}`}
+                        className="focus-ring inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-brand transition hover:bg-brand-soft"
+                      >
+                        Manage
+                        <IconChevronRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </Td>
+                  </Tr>
+                ))}
               </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+            </TableWrap>
+          </Card>
+        </>
+      )}
+    </PageBody>
   )
 }
